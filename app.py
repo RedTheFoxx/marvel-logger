@@ -1,12 +1,14 @@
 import logging
-import sys
 
 import discord
 from discord import app_commands
 
 from marvel_logger.config import DISCORD_GUILD_ID, DISCORD_TOKEN
 from marvel_logger.features.check import register_check_command
+from marvel_logger.logging_setup import configure_logging
 from marvel_logger.tracker import TrackerScraper
+
+logger = logging.getLogger(__name__)
 
 
 class MarvelLoggerBot(discord.Client):
@@ -23,30 +25,28 @@ class MarvelLoggerBot(discord.Client):
             guild = discord.Object(id=int(DISCORD_GUILD_ID))
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            print(f"Commandes synchronisées sur la guilde {DISCORD_GUILD_ID}")
+            logger.info(
+                "[green]✓[/] Commandes synchronisées sur la guilde [bold]%s[/]",
+                DISCORD_GUILD_ID,
+            )
         else:
             await self.tree.sync()
-            print("Commandes synchronisées globalement")
+            logger.info("[green]✓[/] Commandes synchronisées [bold]globalement[/]")
 
     async def close(self) -> None:
         await self.tracker.close()
         await super().close()
 
     async def on_ready(self) -> None:
-        print(f"Connecté en tant que {self.user}")
-
-
-def _configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-        stream=sys.stdout,
-    )
+        logger.info(
+            "[bold green]Connecté[/] en tant que [cyan]%s[/] [dim](%s)[/]",
+            self.user,
+            self.user.id,
+        )
 
 
 def main() -> None:
-    _configure_logging()
+    configure_logging()
 
     if not DISCORD_TOKEN:
         raise SystemExit(
@@ -55,7 +55,8 @@ def main() -> None:
 
     tracker = TrackerScraper()
     bot = MarvelLoggerBot(tracker)
-    bot.run(DISCORD_TOKEN)
+    # log_handler=None : pas de StreamHandler discord.py (format YYYY-MM-DD séparé)
+    bot.run(DISCORD_TOKEN, log_handler=None)
 
 
 if __name__ == "__main__":

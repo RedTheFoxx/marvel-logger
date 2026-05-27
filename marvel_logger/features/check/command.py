@@ -33,7 +33,11 @@ def register_check_command(
         started = time.monotonic()
         requester = interaction.user.display_name
         username = username.strip()
-        logger.info("/check demandé par %s pour « %s »", requester, username)
+        logger.info(
+            "[bold magenta]/check[/] demandé par [cyan]%s[/] pour « [bold]%s[/] »",
+            requester,
+            username,
+        )
 
         if not username:
             await interaction.response.send_message(
@@ -59,7 +63,7 @@ def register_check_command(
             embed = build_check_embed(profile)
             await interaction.followup.send(embed=embed)
             logger.info(
-                "/check OK pour %s (rang %s) — %.1fs total",
+                "[green]/check OK[/] pour %s (rang %s) — %.1fs total",
                 username,
                 profile.current_rank.tier_name if profile.current_rank else "—",
                 time.monotonic() - started,

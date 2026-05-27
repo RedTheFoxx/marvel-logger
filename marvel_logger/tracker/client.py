@@ -19,10 +19,11 @@ from marvel_logger.config import (
     TRACKER_PROFILE_URL,
     TRACKER_REQUEST_COOLDOWN_SECONDS,
 )
-
-logger = logging.getLogger(__name__)
+from marvel_logger.logging_setup import scrape_progress
 from marvel_logger.tracker.models import PlayerProfile
 from marvel_logger.tracker.parser import parse_profile
+
+logger = logging.getLogger(__name__)
 
 
 class TrackerScraperError(Exception):
@@ -205,13 +206,18 @@ class TrackerScraper:
         page_action = self._make_page_action(username, capture)
 
         try:
-            await self._session.fetch(
-                profile_url,
-                page_action=page_action,
-                network_idle=True,
-                solve_cloudflare=SCRAPE_SOLVE_CLOUDFLARE,
-                timeout=SCRAPE_TIMEOUT_MS,
-            )
+            with scrape_progress() as progress:
+                progress.add_task(
+                    f"[cyan]Scraping[/] [bold]{username}[/] sur Tracker.gg…",
+                    total=None,
+                )
+                await self._session.fetch(
+                    profile_url,
+                    page_action=page_action,
+                    network_idle=True,
+                    solve_cloudflare=SCRAPE_SOLVE_CLOUDFLARE,
+                    timeout=SCRAPE_TIMEOUT_MS,
+                )
         except ProfileNotFoundError:
             logger.warning(
                 "Profil introuvable après %.1fs : %s", time.monotonic() - started, username
@@ -257,10 +263,10 @@ class TrackerScraper:
     async def fetch_raw(self, username: str) -> dict[str, Any]:
         cached = self._cache_get(username)
         if cached is not None:
-            logger.info("Cache hit pour %s", username)
+            logger.info("[green]Cache hit[/] pour %s", username)
             return cached
 
-        logger.info("Cache miss pour %s — lancement du scrape", username)
+        logger.info("[yellow]Cache miss[/] pour %s — lancement du scrape", username)
         await self._acquire_scrape_slot()
         payload = await self._scrape_json(username)
         self._cache_set(username, payload)
