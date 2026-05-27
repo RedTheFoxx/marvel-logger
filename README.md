@@ -1,2 +1,9 @@
 # marvel-logger
-Bot Discord de statistiques et services en lien avec la plateforme Tracker.gg pour le jeu Marvel Rivals
+
+Bot Discord qui affiche les statistiques Marvel Rivals d'un joueur, récupérées sur [Tracker.gg](https://tracker.gg/marvel-rivals).
+
+## Commandes
+
+| Commande | Description |
+|----------|-------------|
+| `/check <pseudo>` | Overview du profil : rang, stats principales, rôles et top 3 héros (saison courante, plateforme IGN). |
