@@ -1,7 +1,15 @@
+import datetime
+
 import discord
 
 from marvel_logger.config import DEFAULT_EMBED_COLOR
 from marvel_logger.tracker.models import PlayerProfile, StatValue
+
+_SECTION_SEPARATOR = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
+
+
+def _add_section_separator(embed: discord.Embed) -> None:
+    embed.add_field(name="\u200b", value=_SECTION_SEPARATOR, inline=False)
 
 
 def _percentile_suffix(stat: StatValue | None) -> str:
@@ -21,13 +29,19 @@ def build_check_embed(profile: PlayerProfile) -> discord.Embed:
         color=color,
     )
 
-    if profile.avatar_url:
-        embed.set_author(name=profile.username, icon_url=profile.avatar_url)
+    author_icon = None
+    if profile.current_rank and profile.current_rank.icon_url:
+        author_icon = profile.current_rank.icon_url
+    elif profile.avatar_url:
+        author_icon = profile.avatar_url
+
+    if author_icon:
+        embed.set_author(name=profile.username, icon_url=author_icon)
     else:
         embed.set_author(name=profile.username)
 
-    if profile.current_rank and profile.current_rank.icon_url:
-        embed.set_thumbnail(url=profile.current_rank.icon_url)
+    if profile.avatar_url:
+        embed.set_thumbnail(url=profile.avatar_url)
 
     summary = (
         f"**{profile.matches_played}** matchs · **{profile.time_played}** de jeu"
@@ -82,6 +96,7 @@ def build_check_embed(profile: PlayerProfile) -> discord.Embed:
             )
         )
     if rank_parts:
+        _add_section_separator(embed)
         embed.add_field(name="Rang", value="\n".join(rank_parts), inline=False)
 
     if profile.season_peaks:
@@ -127,6 +142,7 @@ def build_check_embed(profile: PlayerProfile) -> discord.Embed:
         detail_lines.append(f"SVPs · **{profile.svps.display}**{svp_suffix}")
 
     if detail_lines:
+        _add_section_separator(embed)
         embed.add_field(
             name="Statistiques détaillées",
             value="\n".join(detail_lines),
@@ -134,6 +150,7 @@ def build_check_embed(profile: PlayerProfile) -> discord.Embed:
         )
 
     if profile.roles:
+        _add_section_separator(embed)
         roles_text = "\n\n".join(
             f"**{r.name}** — WR **{r.win_pct}** ({r.wins} wins)\n"
             f"KDA **{r.kda}** · {r.kills} / {r.deaths} / {r.assists}"
@@ -142,6 +159,7 @@ def build_check_embed(profile: PlayerProfile) -> discord.Embed:
         embed.add_field(name="Rôles", value=roles_text, inline=False)
 
     if profile.top_heroes:
+        _add_section_separator(embed)
         heroes_text = "\n\n".join(
             f"**{h.name}** — WR **{h.win_pct}** ({h.record})\n"
             f"KDA **{h.kda}** · {h.kills} / {h.deaths} / {h.assists}"
@@ -153,6 +171,7 @@ def build_check_embed(profile: PlayerProfile) -> discord.Embed:
     if profile.season_name:
         footer = f"{profile.season_name} · {footer}"
     embed.set_footer(text=footer)
+    embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
 
     return embed
 
