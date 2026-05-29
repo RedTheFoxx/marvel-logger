@@ -4,6 +4,8 @@ import discord
 from discord import app_commands
 
 from marvel_logger.config import DISCORD_GUILD_ID, DISCORD_TOKEN
+from marvel_logger.db import RegistrationStore
+from marvel_logger.features.register import register_register_command
 from marvel_logger.features.stats import register_stats_command
 from marvel_logger.logging_setup import configure_logging
 from marvel_logger.tracker import TrackerScraper
@@ -12,15 +14,18 @@ logger = logging.getLogger(__name__)
 
 
 class MarvelLoggerBot(discord.Client):
-    def __init__(self, tracker: TrackerScraper) -> None:
+    def __init__(self, tracker: TrackerScraper, registrations: RegistrationStore) -> None:
         intents = discord.Intents.default()
         super().__init__(intents=intents)
         self.tracker = tracker
+        self.registrations = registrations
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self) -> None:
+        await self.registrations.init()
         await self.tracker.start()
         register_stats_command(self.tree, self.tracker)
+        register_register_command(self.tree, self.tracker, self.registrations)
         if DISCORD_GUILD_ID:
             guild = discord.Object(id=int(DISCORD_GUILD_ID))
             self.tree.copy_global_to(guild=guild)
@@ -54,7 +59,8 @@ def main() -> None:
         )
 
     tracker = TrackerScraper()
-    bot = MarvelLoggerBot(tracker)
+    registrations = RegistrationStore()
+    bot = MarvelLoggerBot(tracker, registrations)
     # log_handler=None : pas de StreamHandler discord.py (format YYYY-MM-DD séparé)
     bot.run(DISCORD_TOKEN, log_handler=None)
 

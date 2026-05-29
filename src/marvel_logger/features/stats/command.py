@@ -1,5 +1,4 @@
 import logging
-import re
 import time
 
 import discord
@@ -14,8 +13,7 @@ from marvel_logger.tracker.client import (
     TrackerScraper,
     TrackerScraperError,
 )
-
-_USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.]{1,32}$")
+from marvel_logger.utils import validate_tracker_username
 
 
 def register_stats_command(
@@ -39,18 +37,10 @@ def register_stats_command(
             username,
         )
 
-        if not username:
+        validation_error = validate_tracker_username(username)
+        if validation_error:
             await interaction.response.send_message(
-                embed=build_error_embed("Le pseudo ne peut pas être vide."),
-                ephemeral=True,
-            )
-            return
-        if not _USERNAME_PATTERN.match(username):
-            await interaction.response.send_message(
-                embed=build_error_embed(
-                    "Pseudo invalide. Utilisez uniquement lettres, chiffres, "
-                    "tirets, underscores ou points (max 32 caractères)."
-                ),
+                embed=build_error_embed(validation_error),
                 ephemeral=True,
             )
             return
