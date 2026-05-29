@@ -21,7 +21,7 @@ def _percentile_suffix(stat: StatValue | None) -> str:
     return f"\nBottom {p:.1f}%"
 
 
-def build_check_embed(profile: PlayerProfile) -> discord.Embed:
+def build_stats_embed(profile: PlayerProfile) -> discord.Embed:
     color = profile.embed_color or DEFAULT_EMBED_COLOR
     embed = discord.Embed(
         title=f"{profile.username} — Marvel Rivals Overview",

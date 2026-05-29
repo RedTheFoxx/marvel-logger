@@ -4,7 +4,7 @@ import discord
 from discord import app_commands
 
 from marvel_logger.config import DISCORD_GUILD_ID, DISCORD_TOKEN
-from marvel_logger.features.check import register_check_command
+from marvel_logger.features.stats import register_stats_command
 from marvel_logger.logging_setup import configure_logging
 from marvel_logger.tracker import TrackerScraper
 
@@ -20,7 +20,7 @@ class MarvelLoggerBot(discord.Client):
 
     async def setup_hook(self) -> None:
         await self.tracker.start()
-        register_check_command(self.tree, self.tracker)
+        register_stats_command(self.tree, self.tracker)
         if DISCORD_GUILD_ID:
             guild = discord.Object(id=int(DISCORD_GUILD_ID))
             self.tree.copy_global_to(guild=guild)

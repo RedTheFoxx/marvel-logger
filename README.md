@@ -6,4 +6,4 @@ Bot Discord qui affiche les statistiques Marvel Rivals d'un joueur, récupérée
 
 | Commande | Description |
 |----------|-------------|
-| `/check <pseudo>` | Overview du profil : rang, stats principales, rôles et top 3 héros (saison courante, plateforme IGN). |
+| `/stats <pseudo>` | Overview du profil : rang, stats principales, rôles et top 3 héros (saison courante, plateforme IGN). |
