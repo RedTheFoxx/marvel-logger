@@ -11,10 +11,13 @@ from scrapling.fetchers import AsyncStealthySession
 from marvel_logger.config import (
     CACHE_TTL_SECONDS,
     DEBUG,
+    MATCHES_CAPTURE_TIMEOUT_SECONDS,
     SCRAPE_HEADLESS,
     SCRAPE_MAX_PAGES,
     SCRAPE_SOLVE_CLOUDFLARE,
     SCRAPE_TIMEOUT_MS,
+    TRACKER_MATCHES_API_PATH,
+    TRACKER_MATCHES_URL,
     TRACKER_PROFILE_API_PATH,
     TRACKER_PROFILE_URL,
     TRACKER_REQUEST_COOLDOWN_SECONDS,
@@ -22,6 +25,7 @@ from marvel_logger.config import (
 from marvel_logger.logging_setup import scrape_progress
 from marvel_logger.tracker.models import PlayerProfile
 from marvel_logger.tracker.parser import parse_profile
+from marvel_logger.tracker.parser_matches import apply_rating_chart
 
 logger = logging.getLogger(__name__)
 
@@ -127,17 +131,39 @@ class TrackerScraper:
             logger.info("Slot Tracker.gg accordé")
 
     @staticmethod
-    def _api_path(username: str) -> str:
+    def _profile_api_path(username: str) -> str:
         return TRACKER_PROFILE_API_PATH.format(username=username).lower()
 
     @staticmethod
-    def _matches_profile_api(response: Response, api_path: str) -> bool:
-        path = urlparse(response.url).path.lower().rstrip("/")
-        expected = api_path.rstrip("/")
-        return path == expected
+    def _matches_api_path(username: str) -> str:
+        return TRACKER_MATCHES_API_PATH.format(username=username).lower()
 
     @staticmethod
-    def _validate_payload(payload: dict[str, Any], username: str) -> None:
+    def _path_matches(response: Response, expected_path: str) -> bool:
+        path = urlparse(response.url).path.lower().rstrip("/")
+        return path == expected_path.rstrip("/")
+
+    @staticmethod
+    def _is_matches_api(response: Response, username: str) -> bool:
+        path = urlparse(response.url).path.lower()
+        expected = TrackerScraper._matches_api_path(username)
+        return path == expected.rstrip("/") or (
+            "/matches/ign/" in path and username.lower() in path
+        )
+
+    @staticmethod
+    def _normalize_bundle(payload: dict[str, Any]) -> dict[str, Any]:
+        if "profile" in payload:
+            return payload
+        return {"profile": payload, "matches": None}
+
+    @staticmethod
+    def _season_id_from_profile(profile_payload: dict[str, Any]) -> int:
+        metadata = (profile_payload.get("data") or {}).get("metadata") or {}
+        return int(metadata.get("currentSeason") or metadata.get("defaultSeason") or 0)
+
+    @staticmethod
+    def _validate_profile_payload(payload: dict[str, Any], username: str) -> None:
         if payload.get("errors"):
             message = payload["errors"][0].get("message", "Profil introuvable.")
             raise ProfileNotFoundError(
@@ -148,47 +174,104 @@ class TrackerScraper:
             raise TrackerScraperError("Réponse Tracker.gg invalide.")
 
     def _make_page_action(self, username: str, capture: dict[str, Any]):
-        api_path = self._api_path(username)
+        profile_path = self._profile_api_path(username)
         wait_seconds = max((SCRAPE_TIMEOUT_MS - 20_000) / 1000, 20.0)
-        done = asyncio.Event()
+        profile_done = asyncio.Event()
+        matches_done = asyncio.Event()
 
         async def on_response(response: Response) -> None:
-            if not TrackerScraper._matches_profile_api(response, api_path):
+            if self._path_matches(response, profile_path):
+                if capture.get("profile") is not None:
+                    return
+                capture["profile_status"] = response.status
+                logger.info(
+                    "Réponse API profil interceptée : HTTP %d (%s)",
+                    response.status,
+                    response.url,
+                )
+                if response.status == 404:
+                    profile_done.set()
+                    return
+                try:
+                    capture["profile"] = await response.json()
+                    profile_done.set()
+                except Exception:
+                    logger.warning("Impossible de parser le JSON de la réponse profil")
                 return
-            if capture.get("payload") is not None or capture.get("status") is not None:
+
+            if not self._is_matches_api(response, username):
                 return
-            capture["status"] = response.status
+            if capture.get("matches") is not None:
+                return
+            capture["matches_status"] = response.status
             logger.info(
-                "Réponse API profil interceptée : HTTP %d (%s)",
+                "Réponse API matchs interceptée : HTTP %d (%s)",
                 response.status,
                 response.url,
             )
-            if response.status == 404:
-                done.set()
+            if response.status != 200:
                 return
             try:
-                capture["payload"] = await response.json()
-                done.set()
+                capture["matches"] = await response.json()
+                matches_done.set()
             except Exception:
-                logger.warning("Impossible de parser le JSON de la réponse profil")
-                return
+                logger.warning("Impossible de parser le JSON de la réponse matchs")
 
-        async def page_action(page: Page) -> None:
-            logger.debug("Rechargement page pour déclencher l'appel API")
-            page.on("response", on_response)
-            await page.reload(wait_until="domcontentloaded")
+        async def _wait_profile() -> None:
             try:
-                await asyncio.wait_for(done.wait(), timeout=wait_seconds)
+                await asyncio.wait_for(profile_done.wait(), timeout=wait_seconds)
             except TimeoutError:
-                body = (await page.content()).lower()
+                body = ""
+                if capture.get("_page") is not None:
+                    body = (await capture["_page"].content()).lower()
                 if "profile not found" in body or "page-not-found" in body:
                     raise ProfileNotFoundError(
                         f"Profil introuvable : **{username}**",
                         status_code=404,
                     )
-                if capture.get("payload") is None:
+                if capture.get("profile") is None:
                     raise TrackerScraperError(
                         "Impossible de charger le profil Tracker.gg. Réessayez dans quelques instants."
+                    )
+
+        async def _wait_matches_optional() -> None:
+            if capture.get("matches") is not None:
+                return
+            try:
+                await asyncio.wait_for(
+                    matches_done.wait(), timeout=MATCHES_CAPTURE_TIMEOUT_SECONDS
+                )
+            except TimeoutError:
+                logger.info(
+                    "Pas de réponse API matchs sur l'overview après %.0fs",
+                    MATCHES_CAPTURE_TIMEOUT_SECONDS,
+                )
+
+        async def page_action(page: Page) -> None:
+            capture["_page"] = page
+            page.on("response", on_response)
+            logger.debug("Rechargement overview pour déclencher les appels API")
+            await page.reload(wait_until="domcontentloaded")
+            await _wait_profile()
+            await _wait_matches_optional()
+
+            if capture.get("matches") is None and capture.get("profile"):
+                season_id = self._season_id_from_profile(capture["profile"])
+                matches_url = (
+                    TRACKER_MATCHES_URL.format(username=username)
+                    + f"?season={season_id}"
+                )
+                logger.info(
+                    "Fallback navigation matchs → %s",
+                    matches_url,
+                )
+                await page.goto(matches_url, wait_until="domcontentloaded")
+                try:
+                    await asyncio.wait_for(matches_done.wait(), timeout=wait_seconds)
+                except TimeoutError:
+                    logger.warning(
+                        "API matchs non reçue après fallback pour %s",
+                        username,
                     )
 
         return page_action
@@ -234,11 +317,19 @@ class TrackerScraper:
             raise TrackerScraperError(
                 "Impossible de charger le profil Tracker.gg. Réessayez dans quelques instants."
             ) from exc
+        finally:
+            capture.pop("_page", None)
 
         elapsed = time.monotonic() - started
-        status = capture.get("status")
-        payload = capture.get("payload")
-        logger.info("Page chargée en %.1fs (HTTP API %s)", elapsed, status or "?")
+        status = capture.get("profile_status")
+        profile_payload = capture.get("profile")
+        matches_payload = capture.get("matches")
+        logger.info(
+            "Page chargée en %.1fs (profil HTTP %s, matchs %s)",
+            elapsed,
+            status or "?",
+            "oui" if matches_payload else "non",
+        )
 
         if status == 404:
             raise ProfileNotFoundError(
@@ -250,21 +341,27 @@ class TrackerScraper:
                 "Accès refusé par Tracker.gg. Réessayez dans quelques instants.",
                 status_code=403,
             )
-        if not payload:
+        if not profile_payload:
             raise TrackerScraperError(
                 "Impossible de charger le profil Tracker.gg. Réessayez dans quelques instants."
             )
 
-        self._validate_payload(payload, username)
-        segments = len((payload.get("data") or {}).get("segments") or [])
-        logger.info("Données profil valides (%d segments) en %.1fs", segments, elapsed)
-        return payload
+        self._validate_profile_payload(profile_payload, username)
+        segments = len((profile_payload.get("data") or {}).get("segments") or [])
+        match_count = len((matches_payload or {}).get("data", {}).get("matches") or [])
+        logger.info(
+            "Données valides (%d segments profil, %d matchs API) en %.1fs",
+            segments,
+            match_count,
+            elapsed,
+        )
+        return {"profile": profile_payload, "matches": matches_payload}
 
     async def fetch_raw(self, username: str) -> dict[str, Any]:
         cached = self._cache_get(username)
         if cached is not None:
             logger.info("[green]Cache hit[/] pour %s", username)
-            return cached
+            return self._normalize_bundle(cached)
 
         logger.info("[yellow]Cache miss[/] pour %s — lancement du scrape", username)
         await self._acquire_scrape_slot()
@@ -275,12 +372,14 @@ class TrackerScraper:
 
     async def fetch_profile(self, username: str) -> PlayerProfile:
         started = time.monotonic()
-        raw = await self.fetch_raw(username)
-        profile = parse_profile(raw, username)
+        raw = self._normalize_bundle(await self.fetch_raw(username))
+        profile = parse_profile(raw["profile"], username)
+        apply_rating_chart(profile, raw.get("matches"))
         logger.info(
-            "Profil parsé : %s (saison %s) en %.1fs",
+            "Profil parsé : %s (saison %s, %d points rating) en %.1fs",
             profile.username,
             profile.season_name or "?",
+            len(profile.rating_chart),
             time.monotonic() - started,
         )
         return profile

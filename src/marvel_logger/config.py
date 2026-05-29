@@ -21,6 +21,19 @@ TRACKER_PROFILE_URL = (
 TRACKER_PROFILE_API_PATH = (
     "/api/v2/marvel-rivals/standard/profile/ign/{username}"
 )
+TRACKER_MATCHES_URL = (
+    "https://tracker.gg/marvel-rivals/profile/ign/{username}/matches"
+)
+TRACKER_MATCHES_API_PATH = (
+    "/api/v2/marvel-rivals/standard/matches/ign/{username}"
+)
+TRACKER_MATCH_URL = "https://tracker.gg/marvel-rivals/matches/{match_id}"
+
+# 0 = toute la première page API (alignée overview) ; sinon plafond explicite
+RATING_GRAPH_MATCH_LIMIT = int(os.getenv("RATING_GRAPH_MATCH_LIMIT", "0"))
+MATCHES_CAPTURE_TIMEOUT_SECONDS = float(
+    os.getenv("MATCHES_CAPTURE_TIMEOUT_SECONDS", "8")
+)
 
 DEBUG = _env_bool("DEBUG", False)
 

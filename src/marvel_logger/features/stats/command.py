@@ -1,3 +1,5 @@
+import asyncio
+import io
 import logging
 import time
 
@@ -6,6 +8,7 @@ from discord import app_commands
 
 logger = logging.getLogger(__name__)
 
+from marvel_logger.features.stats.chart import render_rating_chart
 from marvel_logger.features.stats.embed import build_stats_embed, build_error_embed
 from marvel_logger.tracker.client import (
     ProfileNotFoundError,
@@ -51,11 +54,25 @@ def register_stats_command(
         try:
             profile = await tracker.fetch_profile(username)
             embed = build_stats_embed(profile)
-            await interaction.followup.send(embed=embed)
+            files: list[discord.File] | None = None
+            if profile.rating_chart:
+                png_bytes = await asyncio.to_thread(
+                    render_rating_chart,
+                    profile.rating_chart,
+                    total_delta=profile.rating_chart_delta,
+                )
+                files = [
+                    discord.File(
+                        io.BytesIO(png_bytes),
+                        filename="rating_chart.png",
+                    )
+                ]
+            await interaction.followup.send(embed=embed, files=files)
             logger.info(
-                "[green]/stats OK[/] pour %s (rang %s) — %.1fs total",
+                "[green]/stats OK[/] pour %s (rang %s, %d pts rating) — %.1fs total",
                 username,
                 profile.current_rank.tier_name if profile.current_rank else "—",
+                len(profile.rating_chart),
                 time.monotonic() - started,
             )
         except ProfileNotFoundError as exc:

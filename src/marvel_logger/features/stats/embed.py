@@ -12,6 +12,17 @@ def _add_section_separator(embed: discord.Embed) -> None:
     embed.add_field(name="\u200b", value=_SECTION_SEPARATOR, inline=False)
 
 
+def _rating_chart_summary(profile: PlayerProfile) -> str:
+    lines = [f"**{len(profile.rating_chart)}** parties classées"]
+    delta = profile.rating_chart_delta
+    if delta is not None:
+        sign = "+" if delta > 0 else ""
+        lines.append(f"Variation : **{sign}{delta} RS**")
+    if profile.current_rank and profile.current_rank.rs:
+        lines.append(f"RS actuel : **{profile.current_rank.rs}**")
+    return "\n".join(lines)
+
+
 def _percentile_suffix(stat: StatValue | None) -> str:
     if not stat or stat.percentile is None:
         return ""
@@ -98,6 +109,15 @@ def build_stats_embed(profile: PlayerProfile) -> discord.Embed:
     if rank_parts:
         _add_section_separator(embed)
         embed.add_field(name="Rang", value="\n".join(rank_parts), inline=False)
+
+    if profile.rating_chart:
+        _add_section_separator(embed)
+        embed.add_field(
+            name="Évolution du rating (parties classées)",
+            value=_rating_chart_summary(profile),
+            inline=False,
+        )
+        embed.set_image(url="attachment://rating_chart.png")
 
     if profile.season_peaks:
         peaks_text = " · ".join(
