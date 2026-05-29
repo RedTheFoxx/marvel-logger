@@ -86,7 +86,7 @@ def register_stats_command(
                 ephemeral=True,
             )
         except TrackerScraperError as exc:
-            logger.error(
+            logger.exception(
                 "/stats échec scraper pour %s : %s (%.1fs)",
                 username,
                 exc,
