@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "marvel-logger"
+version = "0.1.0"
+description = "Bot Discord pour les statistiques Marvel Rivals via Tracker.gg"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "discord.py>=2.3.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.7.0",
+    "scrapling[fetchers]>=0.4.8",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
