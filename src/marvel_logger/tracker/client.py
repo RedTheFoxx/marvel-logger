@@ -12,10 +12,14 @@ from marvel_logger.config import (
     CACHE_TTL_SECONDS,
     DEBUG,
     MATCHES_CAPTURE_TIMEOUT_SECONDS,
+    MATCHES_MAX_PAGES,
+    MATCHES_PAGE_FETCH_DELAY_SECONDS,
+    RATING_GRAPH_MATCH_TARGET,
     SCRAPE_HEADLESS,
     SCRAPE_MAX_PAGES,
     SCRAPE_SOLVE_CLOUDFLARE,
     SCRAPE_TIMEOUT_MS,
+    TRACKER_API_BASE_URL,
     TRACKER_MATCHES_API_PATH,
     TRACKER_MATCHES_URL,
     TRACKER_PROFILE_API_PATH,
@@ -28,6 +32,10 @@ from marvel_logger.tracker.parser import parse_profile
 from marvel_logger.tracker.parser_matches import apply_rating_chart
 
 logger = logging.getLogger(__name__)
+
+_PROFILE_LOAD_ERROR = (
+    "Impossible de charger le profil Tracker.gg. Réessayez dans quelques instants."
+)
 
 
 class TrackerScraperError(Exception):
@@ -73,7 +81,7 @@ class TrackerScraper:
         self._session = AsyncStealthySession(
             headless=SCRAPE_HEADLESS,
             solve_cloudflare=SCRAPE_SOLVE_CLOUDFLARE,
-            network_idle=True,
+            network_idle=False,
             timeout=SCRAPE_TIMEOUT_MS,
             max_pages=SCRAPE_MAX_PAGES,
             google_search=True,
@@ -163,6 +171,117 @@ class TrackerScraper:
         return int(metadata.get("currentSeason") or metadata.get("defaultSeason") or 0)
 
     @staticmethod
+    def _matches_list(matches_payload: dict[str, Any] | None) -> list[Any]:
+        data = (matches_payload or {}).get("data") or {}
+        matches = data.get("matches")
+        return matches if isinstance(matches, list) else []
+
+    @staticmethod
+    def _next_cursor(matches_payload: dict[str, Any] | None) -> str | None:
+        data = (matches_payload or {}).get("data") or {}
+        meta = data.get("metadata") or {}
+        cursor = meta.get("next")
+        return str(cursor) if cursor else None
+
+    @staticmethod
+    def _ranked_match_count(matches_payload: dict[str, Any] | None) -> int:
+        count = 0
+        for match in TrackerScraper._matches_list(matches_payload):
+            attrs = match.get("attributes") or {}
+            meta = match.get("metadata") or {}
+            mode = (attrs.get("mode") or "").lower()
+            if mode in ("competitive", "ranked") or meta.get("isRanked"):
+                count += 1
+        return count
+
+    async def _paginate_matches(
+        self,
+        page: Page,
+        username: str,
+        season_id: int,
+        first_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Accumule plusieurs pages de l'API matchs via le curseur ``next``."""
+        accumulated = list(self._matches_list(first_payload))
+        next_cursor = self._next_cursor(first_payload)
+        api_path = self._matches_api_path(username)
+        seen_cursors: set[str] = set()
+        pages_fetched = 1
+
+        while (
+            next_cursor
+            and next_cursor not in seen_cursors
+            and pages_fetched < MATCHES_MAX_PAGES
+            and self._ranked_match_count({"data": {"matches": accumulated}})
+            < RATING_GRAPH_MATCH_TARGET
+        ):
+            seen_cursors.add(next_cursor)
+            base = f"{TRACKER_API_BASE_URL.rstrip('/')}{api_path}"
+            try:
+                payload = await page.evaluate(
+                    """async ({ base, season, cursor }) => {
+                        const url = new URL(base);
+                        url.searchParams.set('season', season);
+                        url.searchParams.set('next', cursor);
+                        try {
+                            const res = await fetch(url.toString(), {
+                                headers: { accept: 'application/json' },
+                                credentials: 'include',
+                            });
+                            if (!res.ok) return { __status: res.status };
+                            return await res.json();
+                        } catch (e) {
+                            return { __error: String(e) };
+                        }
+                    }""",
+                    {"base": base, "season": str(season_id), "cursor": next_cursor},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Échec fetch pagination matchs (page %d) : %s",
+                    pages_fetched + 1,
+                    exc,
+                )
+                break
+
+            if not isinstance(payload, dict) or payload.get("__error"):
+                logger.warning(
+                    "Erreur fetch pagination (page %d) : %s",
+                    pages_fetched + 1,
+                    payload.get("__error") if isinstance(payload, dict) else "réponse inattendue",
+                )
+                break
+            if payload.get("__status"):
+                logger.warning(
+                    "Réponse pagination invalide (page %d, HTTP %s)",
+                    pages_fetched + 1,
+                    payload.get("__status"),
+                )
+                break
+
+            new_matches = self._matches_list(payload)
+            if not new_matches:
+                break
+            accumulated.extend(new_matches)
+            pages_fetched += 1
+            next_cursor = self._next_cursor(payload)
+            logger.info(
+                "Page matchs %d récupérée (+%d → %d matchs, %d classés)",
+                pages_fetched,
+                len(new_matches),
+                len(accumulated),
+                self._ranked_match_count({"data": {"matches": accumulated}}),
+            )
+            if next_cursor:
+                await asyncio.sleep(MATCHES_PAGE_FETCH_DELAY_SECONDS)
+
+        merged = dict(first_payload)
+        data = dict(merged.get("data") or {})
+        data["matches"] = accumulated
+        merged["data"] = data
+        return merged
+
+    @staticmethod
     def _validate_profile_payload(payload: dict[str, Any], username: str) -> None:
         if payload.get("errors"):
             message = payload["errors"][0].get("message", "Profil introuvable.")
@@ -223,16 +342,15 @@ class TrackerScraper:
             except TimeoutError:
                 body = ""
                 if capture.get("_page") is not None:
-                    body = (await capture["_page"].content()).lower()
+                    page_content = await capture["_page"].content()
+                    body = page_content.lower()
                 if "profile not found" in body or "page-not-found" in body:
                     raise ProfileNotFoundError(
                         f"Profil introuvable : **{username}**",
                         status_code=404,
                     )
                 if capture.get("profile") is None:
-                    raise TrackerScraperError(
-                        "Impossible de charger le profil Tracker.gg. Réessayez dans quelques instants."
-                    )
+                    raise TrackerScraperError(_PROFILE_LOAD_ERROR)
 
         async def _wait_matches_optional() -> None:
             if capture.get("matches") is not None:
@@ -274,7 +392,101 @@ class TrackerScraper:
                         username,
                     )
 
+            if capture.get("matches") is not None and capture.get("profile"):
+                season_id = self._season_id_from_profile(capture["profile"])
+                ranked = self._ranked_match_count(capture["matches"])
+                has_cursor = self._next_cursor(capture["matches"]) is not None
+                if ranked < RATING_GRAPH_MATCH_TARGET and has_cursor:
+                    logger.info(
+                        "Pagination matchs : %d classés < cible %d, curseur présent",
+                        ranked,
+                        RATING_GRAPH_MATCH_TARGET,
+                    )
+                    try:
+                        capture["matches"] = await self._paginate_matches(
+                            page, username, season_id, capture["matches"]
+                        )
+                    except Exception:
+                        logger.warning("Pagination matchs interrompue, page 1 conservée")
+                elif ranked < RATING_GRAPH_MATCH_TARGET and not has_cursor:
+                    logger.info(
+                        "Pas de curseur 'next' — repli clic « Load more »",
+                    )
+                    await self._load_more_via_ui(
+                        page, username, season_id, capture, wait_seconds
+                    )
+
         return page_action
+
+    async def _load_more_via_ui(
+        self,
+        page: Page,
+        username: str,
+        season_id: int,
+        capture: dict[str, Any],
+        wait_seconds: float,
+    ) -> None:
+        """Repli : navigue vers /matches et clique « Load more » jusqu'à la cible."""
+        accumulated = list(self._matches_list(capture.get("matches")))
+        page_responses: list[dict[str, Any]] = []
+
+        async def on_more(response: Response) -> None:
+            if not self._is_matches_api(response, username) or response.status != 200:
+                return
+            try:
+                page_responses.append(await response.json())
+            except Exception:
+                pass
+
+        matches_url = (
+            TRACKER_MATCHES_URL.format(username=username) + f"?season={season_id}"
+        )
+        try:
+            page.on("response", on_more)
+            await page.goto(matches_url, wait_until="domcontentloaded")
+            clicks = 0
+            while (
+                self._ranked_match_count({"data": {"matches": accumulated}})
+                < RATING_GRAPH_MATCH_TARGET
+                and clicks < MATCHES_MAX_PAGES
+            ):
+                button = page.locator(
+                    "button:has-text('Load more'), button:has-text('Load More'), "
+                    "[class*='load-more'] button, button[class*='load-more']"
+                ).first
+                try:
+                    if await button.count() == 0 or not await button.is_visible():
+                        break
+                    page_responses.clear()
+                    await button.click()
+                    await asyncio.sleep(MATCHES_PAGE_FETCH_DELAY_SECONDS)
+                    try:
+                        await page.wait_for_load_state(
+                            "networkidle", timeout=int(wait_seconds * 1000)
+                        )
+                    except Exception:
+                        pass
+                except Exception:
+                    break
+                for payload in page_responses:
+                    accumulated.extend(self._matches_list(payload))
+                clicks += 1
+                logger.info(
+                    "« Load more » clic %d → %d matchs (%d classés)",
+                    clicks,
+                    len(accumulated),
+                    self._ranked_match_count({"data": {"matches": accumulated}}),
+                )
+        finally:
+            page.remove_listener("response", on_more)
+
+        if accumulated:
+            base = capture.get("matches") or {"data": {}}
+            merged = dict(base)
+            data = dict(merged.get("data") or {})
+            data["matches"] = accumulated
+            merged["data"] = data
+            capture["matches"] = merged
 
     async def _scrape_json(self, username: str) -> dict[str, Any]:
         if self._session is None:
@@ -297,7 +509,7 @@ class TrackerScraper:
                 await self._session.fetch(
                     profile_url,
                     page_action=page_action,
-                    network_idle=True,
+                    network_idle=False,
                     solve_cloudflare=SCRAPE_SOLVE_CLOUDFLARE,
                     timeout=SCRAPE_TIMEOUT_MS,
                 )
@@ -314,9 +526,7 @@ class TrackerScraper:
                 time.monotonic() - started,
                 username,
             )
-            raise TrackerScraperError(
-                "Impossible de charger le profil Tracker.gg. Réessayez dans quelques instants."
-            ) from exc
+            raise TrackerScraperError(_PROFILE_LOAD_ERROR) from exc
         finally:
             capture.pop("_page", None)
 
@@ -342,9 +552,7 @@ class TrackerScraper:
                 status_code=403,
             )
         if not profile_payload:
-            raise TrackerScraperError(
-                "Impossible de charger le profil Tracker.gg. Réessayez dans quelques instants."
-            )
+            raise TrackerScraperError(_PROFILE_LOAD_ERROR)
 
         self._validate_profile_payload(profile_payload, username)
         segments = len((profile_payload.get("data") or {}).get("segments") or [])

@@ -40,7 +40,15 @@ def render_rating_chart(
         x_values = list(range(1, len(points) + 1))
         x_label = "Partie"
 
-    fig, ax = plt.subplots(figsize=(9, 3.2), dpi=100)
+    n = len(points)
+    dense = n > 40
+    fig_width = 11 if dense else 9
+    line_width = 1.4 if dense else 2.2
+    base_marker = 3.0 if dense else 5.0
+    outcome_marker = 4.0 if dense else 7.0
+    marker_edge = 0.8 if dense else 1.2
+
+    fig, ax = plt.subplots(figsize=(fig_width, 3.4), dpi=100)
     fig.patch.set_facecolor(_BG)
     ax.set_facecolor(_PANEL)
 
@@ -48,12 +56,12 @@ def render_rating_chart(
         x_values,
         rs_values,
         color=_LINE,
-        linewidth=2.2,
+        linewidth=line_width,
         marker="o",
-        markersize=5,
+        markersize=base_marker,
         markerfacecolor=_LINE,
         markeredgecolor=_BG,
-        markeredgewidth=1.2,
+        markeredgewidth=marker_edge,
         zorder=3,
     )
     ax.fill_between(x_values, rs_values, min(rs_values) - 40, color=_FILL, alpha=0.12)
@@ -69,10 +77,10 @@ def render_rating_chart(
             x,
             y,
             marker="o",
-            markersize=7,
+            markersize=outcome_marker,
             markerfacecolor=color,
             markeredgecolor=_BG,
-            markeredgewidth=1.2,
+            markeredgewidth=marker_edge,
             zorder=4,
         )
 
@@ -89,6 +97,7 @@ def render_rating_chart(
         spine.set_color(_GRID)
 
     if has_dates:
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=10))
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
         fig.autofmt_xdate(rotation=0, ha="center")
     elif x_label:
@@ -99,7 +108,12 @@ def render_rating_chart(
     delta = total_delta
     if delta is None:
         deltas = [p.rs_delta for p in points if p.rs_delta is not None]
-        delta = sum(deltas) if deltas else (rs_values[-1] - rs_values[0] if len(rs_values) > 1 else 0)
+        if deltas:
+            delta = sum(deltas)
+        elif len(rs_values) > 1:
+            delta = rs_values[-1] - rs_values[0]
+        else:
+            delta = 0
 
     sign = "+" if delta > 0 else ""
     ax.text(

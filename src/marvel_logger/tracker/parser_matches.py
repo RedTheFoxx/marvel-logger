@@ -2,7 +2,11 @@ import datetime
 import re
 from typing import Any
 
-from marvel_logger.config import RATING_GRAPH_MATCH_LIMIT, TRACKER_MATCH_URL
+from marvel_logger.config import (
+    RATING_GRAPH_MATCH_LIMIT,
+    RATING_GRAPH_MATCH_TARGET,
+    TRACKER_MATCH_URL,
+)
 from marvel_logger.tracker.models import (
     MatchHero,
     MatchListEntry,
@@ -214,8 +218,11 @@ def build_rating_chart(matches: list[MatchListEntry]) -> list[RatingChartPoint]:
             )
         )
 
-    if RATING_GRAPH_MATCH_LIMIT > 0 and len(points) > RATING_GRAPH_MATCH_LIMIT:
-        points = points[-RATING_GRAPH_MATCH_LIMIT:]
+    caps = [v for v in (RATING_GRAPH_MATCH_TARGET, RATING_GRAPH_MATCH_LIMIT) if v > 0]
+    if caps:
+        cap = min(caps)
+        if len(points) > cap:
+            points = points[-cap:]
 
     return points
 
