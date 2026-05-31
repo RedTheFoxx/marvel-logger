@@ -9,6 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import numpy as np
 
 from marvel_logger.tracker.models import RatingChartPoint
 
@@ -21,6 +22,51 @@ _TEXT = "#9ca3af"
 _LABEL = "#e5e7eb"
 _WIN = "#22c55e"
 _LOSS = "#ef4444"
+
+
+def _catmull_rom_1d(p0: float, p1: float, p2: float, p3: float, t: float) -> float:
+    t2 = t * t
+    t3 = t2 * t
+    return 0.5 * (
+        (2 * p1)
+        + (-p0 + p2) * t
+        + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
+        + (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+    )
+
+
+def _smooth_series(
+    x: list[float] | list[int],
+    y: list[int],
+    *,
+    samples_per_segment: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    x_arr = np.asarray(x, dtype=np.float64)
+    y_arr = np.asarray(y, dtype=np.float64)
+    n = len(x_arr)
+    if n < 2:
+        return x_arr, y_arr
+    if n == 2:
+        t = np.linspace(0.0, 1.0, samples_per_segment + 1)
+        return np.interp(t, [0.0, 1.0], x_arr), np.interp(t, [0.0, 1.0], y_arr)
+
+    t = np.arange(n, dtype=np.float64)
+    y_pad = np.concatenate([[y_arr[0]], y_arr, [y_arr[-1]]])
+    t_smooth_list: list[float] = []
+    y_smooth_list: list[float] = []
+
+    for i in range(n - 1):
+        y0, y1, y2, y3 = y_pad[i : i + 4]
+        for ti in np.linspace(0.0, 1.0, samples_per_segment, endpoint=False):
+            t_smooth_list.append(i + float(ti))
+            y_smooth_list.append(_catmull_rom_1d(y0, y1, y2, y3, float(ti)))
+
+    t_smooth_list.append(float(n - 1))
+    y_smooth_list.append(float(y_arr[-1]))
+    t_smooth = np.asarray(t_smooth_list)
+    y_smooth = np.asarray(y_smooth_list)
+    x_smooth = np.interp(t_smooth, t, x_arr)
+    return x_smooth, y_smooth
 
 
 def render_rating_chart(
@@ -52,11 +98,33 @@ def render_rating_chart(
     fig.patch.set_facecolor(_BG)
     ax.set_facecolor(_PANEL)
 
+    samples_per_segment = 8 if dense else 14
+    if has_dates:
+        x_numeric = mdates.date2num(x_values)
+        x_line_num, y_line = _smooth_series(
+            list(x_numeric), rs_values, samples_per_segment=samples_per_segment
+        )
+        x_line = mdates.num2date(x_line_num)
+    else:
+        x_line, y_line = _smooth_series(
+            x_values, rs_values, samples_per_segment=samples_per_segment
+        )
+
+    fill_base = min(rs_values) - 40
+    ax.fill_between(x_line, y_line, fill_base, color=_FILL, alpha=0.12)
+    ax.plot(
+        x_line,
+        y_line,
+        color=_LINE,
+        linewidth=line_width,
+        solid_capstyle="round",
+        solid_joinstyle="round",
+        zorder=3,
+    )
     ax.plot(
         x_values,
         rs_values,
-        color=_LINE,
-        linewidth=line_width,
+        linestyle="none",
         marker="o",
         markersize=base_marker,
         markerfacecolor=_LINE,
@@ -64,7 +132,6 @@ def render_rating_chart(
         markeredgewidth=marker_edge,
         zorder=3,
     )
-    ax.fill_between(x_values, rs_values, min(rs_values) - 40, color=_FILL, alpha=0.12)
 
     for x, y, point in zip(x_values, rs_values, points):
         if point.outcome == "win":
