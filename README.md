@@ -24,3 +24,4 @@ python app.py
 |----------|-------------|
 | `/stats <pseudo>` | Overview du profil : rang, stats principales, rôles et top 3 héros (saison courante, plateforme IGN). |
 | `/register <pseudo>` | Lie votre compte Discord à un pseudo Tracker.gg (jusqu'à 3 pseudos). Le profil doit exister sur Tracker.gg. Réponse privée. |
+| `/match [pseudo]` | Affiche les 5 derniers matchs classés puis un menu pour consulter le scoreboard détaillé. Sans pseudo : utilise le premier pseudo lié via `/register`. |

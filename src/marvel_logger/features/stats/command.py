@@ -6,8 +6,6 @@ import time
 import discord
 from discord import app_commands
 
-logger = logging.getLogger(__name__)
-
 from marvel_logger.features.stats.chart import render_rating_chart
 from marvel_logger.features.stats.embed import build_stats_embed, build_error_embed
 from marvel_logger.tracker.client import (
@@ -17,6 +15,8 @@ from marvel_logger.tracker.client import (
     TrackerScraperError,
 )
 from marvel_logger.utils import validate_tracker_username
+
+logger = logging.getLogger(__name__)
 
 
 def register_stats_command(

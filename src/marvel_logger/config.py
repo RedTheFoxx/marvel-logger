@@ -30,6 +30,13 @@ TRACKER_MATCHES_API_PATH = (
 # Host réel servant l'API Tracker.gg (les appels XHR partent de api.tracker.gg)
 TRACKER_API_BASE_URL = os.getenv("TRACKER_API_BASE_URL", "https://api.tracker.gg")
 TRACKER_MATCH_URL = "https://tracker.gg/marvel-rivals/matches/{match_id}"
+TRACKER_MATCH_API_PATH = (
+    "/api/v2/marvel-rivals/standard/matches/{match_id}"
+)
+MATCH_PREVIEW_LIMIT = int(os.getenv("MATCH_PREVIEW_LIMIT", "5"))
+MATCH_DETAIL_FETCH_DELAY_SECONDS = float(
+    os.getenv("MATCH_DETAIL_FETCH_DELAY_SECONDS", "0.3")
+)
 
 # 0 = toute la première page API (alignée overview) ; sinon plafond explicite
 RATING_GRAPH_MATCH_LIMIT = int(os.getenv("RATING_GRAPH_MATCH_LIMIT", "0"))

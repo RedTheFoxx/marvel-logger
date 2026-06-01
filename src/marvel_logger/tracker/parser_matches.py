@@ -126,6 +126,7 @@ def parse_recent_matches(
     raw: dict[str, Any],
     username: str,
     season_id: int,
+    limit: int | None = None,
 ) -> list[MatchListEntry]:
     matches_raw = (raw.get("data") or {}).get("matches") or []
     if not isinstance(matches_raw, list):
@@ -196,6 +197,8 @@ def parse_recent_matches(
             tzinfo=datetime.timezone.utc
         )
     )
+    if limit is not None and limit > 0 and len(entries) > limit:
+        entries = entries[-limit:]
     return entries
 
 

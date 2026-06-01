@@ -77,6 +77,57 @@ class RatingChartPoint:
 
 
 @dataclass
+class MatchPlayerRow:
+    """Joueur dans le scoreboard détaillé d'un match."""
+
+    username: str
+    is_mvp: bool = False
+    is_svp: bool = False
+    heroes: list[MatchHero] = field(default_factory=list)
+    rank: MatchRankSnapshot | None = None
+    kda_ratio: str = "—"
+    kills: str = "0"
+    deaths: str = "0"
+    assists: str = "0"
+    solo_head_last: str | None = None
+    damage: str | None = None
+    damage_per_min: str | None = None
+    blocked: str | None = None
+    blocked_per_min: str | None = None
+    healing: str | None = None
+    healing_per_min: str | None = None
+    accuracy: str | None = None
+    outcome: MatchOutcome | None = None
+
+
+@dataclass
+class MatchTeam:
+    """Équipe dans un match (jusqu'à 6 joueurs)."""
+
+    label: str
+    won: bool
+    score: int | None = None
+    players: list[MatchPlayerRow] = field(default_factory=list)
+
+
+@dataclass
+class MatchDetail:
+    """Détail complet d'un match (scoreboard des deux équipes)."""
+
+    match_id: str
+    match_url: str
+    game_mode: str
+    map_name: str
+    map_location: str
+    score: str
+    duration: str | None
+    played_at: datetime.datetime | None
+    teams: list[MatchTeam]
+    queried_username: str
+    queried_outcome: MatchOutcome | None = None
+
+
+@dataclass
 class MatchListEntry:
     """Résumé d'un match tel qu'affiché dans la liste (/matches?season=…)."""
 
@@ -96,6 +147,16 @@ class MatchListEntry:
     kda_ratio: str
     played_at: datetime.datetime | None = None
     season_id: int | None = None
+
+
+@dataclass
+class MatchBundle:
+    """Résultat de fetch_match_bundle : aperçu + détails préchargés."""
+
+    username: str
+    season_id: int
+    entries: list[MatchListEntry]
+    details: dict[str, MatchDetail]
 
 
 @dataclass

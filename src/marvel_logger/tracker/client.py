@@ -11,6 +11,8 @@ from scrapling.fetchers import AsyncStealthySession
 from marvel_logger.config import (
     CACHE_TTL_SECONDS,
     DEBUG,
+    MATCH_DETAIL_FETCH_DELAY_SECONDS,
+    MATCH_PREVIEW_LIMIT,
     MATCHES_CAPTURE_TIMEOUT_SECONDS,
     MATCHES_MAX_PAGES,
     MATCHES_PAGE_FETCH_DELAY_SECONDS,
@@ -20,6 +22,7 @@ from marvel_logger.config import (
     SCRAPE_SOLVE_CLOUDFLARE,
     SCRAPE_TIMEOUT_MS,
     TRACKER_API_BASE_URL,
+    TRACKER_MATCH_API_PATH,
     TRACKER_MATCHES_API_PATH,
     TRACKER_MATCHES_URL,
     TRACKER_PROFILE_API_PATH,
@@ -27,9 +30,10 @@ from marvel_logger.config import (
     TRACKER_REQUEST_COOLDOWN_SECONDS,
 )
 from marvel_logger.logging_setup import scrape_progress
-from marvel_logger.tracker.models import PlayerProfile
+from marvel_logger.tracker.models import MatchBundle, MatchDetail, PlayerProfile
 from marvel_logger.tracker.parser import parse_profile
-from marvel_logger.tracker.parser_matches import apply_rating_chart
+from marvel_logger.tracker.parser_match_detail import parse_match_detail
+from marvel_logger.tracker.parser_matches import apply_rating_chart, parse_recent_matches
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,7 @@ class TrackerRateLimitError(TrackerScraperError):
 class TrackerScraper:
     def __init__(self) -> None:
         self._cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._detail_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._session: AsyncStealthySession | None = None
         self._last_scrape_at: float | None = None
         self._scrape_lock = asyncio.Lock()
@@ -119,6 +124,26 @@ class TrackerScraper:
             time.monotonic() + CACHE_TTL_SECONDS,
             payload,
         )
+
+    def _detail_cache_get(self, match_id: str) -> dict[str, Any] | None:
+        entry = self._detail_cache.get(match_id)
+        if not entry:
+            return None
+        expires_at, payload = entry
+        if time.monotonic() > expires_at:
+            del self._detail_cache[match_id]
+            return None
+        return payload
+
+    def _detail_cache_set(self, match_id: str, payload: dict[str, Any]) -> None:
+        self._detail_cache[match_id] = (
+            time.monotonic() + CACHE_TTL_SECONDS,
+            payload,
+        )
+
+    @staticmethod
+    def _match_detail_api_path(match_id: str) -> str:
+        return TRACKER_MATCH_API_PATH.format(match_id=match_id)
 
     async def _acquire_scrape_slot(self) -> None:
         if DEBUG:
@@ -292,7 +317,73 @@ class TrackerScraper:
         if "data" not in payload:
             raise TrackerScraperError("Réponse Tracker.gg invalide.")
 
-    def _make_page_action(self, username: str, capture: dict[str, Any]):
+    async def _prefetch_match_details(
+        self,
+        page: Page,
+        match_ids: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Récupère le JSON détail pour chaque match_id via fetch in-page."""
+        results: dict[str, dict[str, Any]] = {}
+        base = TRACKER_API_BASE_URL.rstrip("/")
+
+        for match_id in match_ids:
+            cached = self._detail_cache_get(match_id)
+            if cached is not None:
+                results[match_id] = cached
+                continue
+
+            api_path = self._match_detail_api_path(match_id)
+            url = f"{base}{api_path}"
+            try:
+                payload = await page.evaluate(
+                    """async (url) => {
+                        try {
+                            const res = await fetch(url, {
+                                headers: { accept: 'application/json' },
+                                credentials: 'include',
+                            });
+                            if (!res.ok) return { __status: res.status };
+                            return await res.json();
+                        } catch (e) {
+                            return { __error: String(e) };
+                        }
+                    }""",
+                    url,
+                )
+            except Exception as exc:
+                logger.warning("Échec prefetch match %s : %s", match_id, exc)
+                continue
+
+            if not isinstance(payload, dict) or payload.get("__error"):
+                logger.warning(
+                    "Prefetch match %s invalide : %s",
+                    match_id,
+                    payload.get("__error") if isinstance(payload, dict) else "?",
+                )
+                continue
+            if payload.get("__status"):
+                logger.warning(
+                    "Prefetch match %s HTTP %s",
+                    match_id,
+                    payload.get("__status"),
+                )
+                continue
+
+            results[match_id] = payload
+            self._detail_cache_set(match_id, payload)
+            logger.info("Détail match %s préchargé", match_id)
+            await asyncio.sleep(MATCH_DETAIL_FETCH_DELAY_SECONDS)
+
+        return results
+
+    def _make_page_action(
+        self,
+        username: str,
+        capture: dict[str, Any],
+        *,
+        skip_match_pagination: bool = False,
+        prefetch_match_details: bool = False,
+    ):
         profile_path = self._profile_api_path(username)
         wait_seconds = max((SCRAPE_TIMEOUT_MS - 20_000) / 1000, 20.0)
         profile_done = asyncio.Event()
@@ -392,7 +483,11 @@ class TrackerScraper:
                         username,
                     )
 
-            if capture.get("matches") is not None and capture.get("profile"):
+            if (
+                not skip_match_pagination
+                and capture.get("matches") is not None
+                and capture.get("profile")
+            ):
                 season_id = self._season_id_from_profile(capture["profile"])
                 ranked = self._ranked_match_count(capture["matches"])
                 has_cursor = self._next_cursor(capture["matches"]) is not None
@@ -414,6 +509,24 @@ class TrackerScraper:
                     )
                     await self._load_more_via_ui(
                         page, username, season_id, capture, wait_seconds
+                    )
+
+            if (
+                prefetch_match_details
+                and capture.get("matches") is not None
+                and capture.get("profile")
+            ):
+                season_id = self._season_id_from_profile(capture["profile"])
+                entries = parse_recent_matches(
+                    capture["matches"],
+                    username,
+                    season_id,
+                    limit=MATCH_PREVIEW_LIMIT,
+                )
+                match_ids = [e.match_id for e in entries]
+                if match_ids:
+                    capture["match_details"] = await self._prefetch_match_details(
+                        page, match_ids
                     )
 
         return page_action
@@ -488,7 +601,13 @@ class TrackerScraper:
             merged["data"] = data
             capture["matches"] = merged
 
-    async def _scrape_json(self, username: str) -> dict[str, Any]:
+    async def _scrape_json(
+        self,
+        username: str,
+        *,
+        skip_match_pagination: bool = False,
+        prefetch_match_details: bool = False,
+    ) -> dict[str, Any]:
         if self._session is None:
             raise TrackerScraperError(
                 "Le scraper n'est pas démarré. Relancez le bot."
@@ -498,7 +617,12 @@ class TrackerScraper:
         logger.info("Scraping profil %s → %s", username, profile_url)
         started = time.monotonic()
         capture: dict[str, Any] = {}
-        page_action = self._make_page_action(username, capture)
+        page_action = self._make_page_action(
+            username,
+            capture,
+            skip_match_pagination=skip_match_pagination,
+            prefetch_match_details=prefetch_match_details,
+        )
 
         try:
             with scrape_progress() as progress:
@@ -563,7 +687,151 @@ class TrackerScraper:
             match_count,
             elapsed,
         )
-        return {"profile": profile_payload, "matches": matches_payload}
+        result: dict[str, Any] = {
+            "profile": profile_payload,
+            "matches": matches_payload,
+        }
+        if capture.get("match_details"):
+            result["match_details"] = capture["match_details"]
+        return result
+
+    async def _scrape_prefetch_only(
+        self, username: str, match_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Session minimale pour précharger des détails quand le cache profil existe déjà."""
+        if self._session is None:
+            raise TrackerScraperError(
+                "Le scraper n'est pas démarré. Relancez le bot."
+            )
+        missing = [mid for mid in match_ids if self._detail_cache_get(mid) is None]
+        if not missing:
+            out: dict[str, dict[str, Any]] = {}
+            for mid in match_ids:
+                cached = self._detail_cache_get(mid)
+                if cached is not None:
+                    out[mid] = cached
+            return out
+
+        profile_url = TRACKER_PROFILE_URL.format(username=username)
+        capture: dict[str, Any] = {"prefetch_ids": missing}
+        profile_path = self._profile_api_path(username)
+        wait_seconds = max((SCRAPE_TIMEOUT_MS - 20_000) / 1000, 20.0)
+        profile_done = asyncio.Event()
+
+        async def on_response(response: Response) -> None:
+            if not self._path_matches(response, profile_path):
+                return
+            if capture.get("profile") is not None:
+                return
+            if response.status != 200:
+                return
+            try:
+                capture["profile"] = await response.json()
+                profile_done.set()
+            except Exception:
+                pass
+
+        async def page_action(page: Page) -> None:
+            page.on("response", on_response)
+            await page.reload(wait_until="domcontentloaded")
+            try:
+                await asyncio.wait_for(profile_done.wait(), timeout=wait_seconds)
+            except TimeoutError:
+                pass
+            capture["match_details"] = await self._prefetch_match_details(
+                page, missing
+            )
+
+        await self._session.fetch(
+            profile_url,
+            page_action=page_action,
+            network_idle=False,
+            solve_cloudflare=SCRAPE_SOLVE_CLOUDFLARE,
+            timeout=SCRAPE_TIMEOUT_MS,
+        )
+        return capture.get("match_details") or {}
+
+    def _bundle_from_raw(
+        self, username: str, raw: dict[str, Any]
+    ) -> MatchBundle:
+        profile_payload = raw.get("profile") or {}
+        matches_payload = raw.get("matches")
+        season_id = self._season_id_from_profile(profile_payload)
+        entries = parse_recent_matches(
+            matches_payload or {},
+            username,
+            season_id,
+            limit=MATCH_PREVIEW_LIMIT,
+        )
+        details: dict[str, MatchDetail] = {}
+        raw_details = raw.get("match_details") or {}
+        for entry in entries:
+            detail_raw = raw_details.get(entry.match_id)
+            if detail_raw is None:
+                detail_raw = self._detail_cache_get(entry.match_id)
+            if detail_raw is None:
+                continue
+            try:
+                details[entry.match_id] = parse_match_detail(detail_raw, username)
+            except (ValueError, KeyError) as exc:
+                logger.warning(
+                    "Parsing détail match %s échoué : %s",
+                    entry.match_id,
+                    exc,
+                )
+        return MatchBundle(
+            username=username,
+            season_id=season_id,
+            entries=entries,
+            details=details,
+        )
+
+    async def fetch_match_bundle(self, username: str) -> MatchBundle:
+        started = time.monotonic()
+        cached = self._cache_get(username)
+        need_scrape = cached is None or cached.get("matches") is None
+
+        if need_scrape:
+            logger.info("[yellow]Cache miss match[/] pour %s — scrape allégé", username)
+            await self._acquire_scrape_slot()
+            payload = await self._scrape_json(
+                username,
+                skip_match_pagination=True,
+                prefetch_match_details=True,
+            )
+            self._cache_set(username, payload)
+            bundle = self._bundle_from_raw(username, payload)
+        else:
+            logger.info("[green]Cache hit[/] match bundle pour %s", username)
+            bundle = self._bundle_from_raw(username, cached)
+            missing = [
+                e.match_id
+                for e in bundle.entries
+                if e.match_id not in bundle.details
+            ]
+            if missing:
+                logger.info(
+                    "Prefetch détails manquants (%d) pour %s",
+                    len(missing),
+                    username,
+                )
+                await self._acquire_scrape_slot()
+                prefetched = await self._scrape_prefetch_only(username, missing)
+                merged = dict(cached)
+                existing = dict(merged.get("match_details") or {})
+                existing.update(prefetched)
+                merged["match_details"] = existing
+                self._cache_set(username, merged)
+                bundle = self._bundle_from_raw(username, merged)
+
+        logger.info(
+            "Match bundle : %s (%d aperçus, %d détails) en %.1fs",
+            username,
+            len(bundle.entries),
+            len(bundle.details),
+            time.monotonic() - started,
+        )
+        return bundle
 
     async def fetch_raw(self, username: str) -> dict[str, Any]:
         cached = self._cache_get(username)
