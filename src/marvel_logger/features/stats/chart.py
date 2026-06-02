@@ -11,6 +11,11 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
 
+from marvel_logger.features.stats.rank_zones import (
+    RankZone,
+    major_rank_key,
+    zones_intersecting,
+)
 from marvel_logger.tracker.models import RatingChartPoint
 
 _BG = "#0a0e14"
@@ -22,6 +27,93 @@ _TEXT = "#9ca3af"
 _LABEL = "#e5e7eb"
 _WIN = "#22c55e"
 _LOSS = "#ef4444"
+_ZONE_LINE = "#4b5563"
+_ZONE_LABEL = "#6b7280"
+_ZONE_HIGHLIGHT = "#d1d5db"
+
+
+def _zone_top_rs(zone: RankZone, rs_hi: float) -> float:
+    if zone.rs_max is not None:
+        return float(zone.rs_max)
+    return rs_hi
+
+
+def _draw_rank_zones(
+    ax: plt.Axes,
+    rs_lo: float,
+    rs_hi: float,
+    *,
+    highlight_key: str | None,
+    dense: bool,
+) -> None:
+    zones = zones_intersecting(rs_lo, rs_hi)
+    if not zones:
+        return
+
+    label_zones: list[RankZone]
+    if highlight_key:
+        label_zones = [z for z in zones if z.key == highlight_key]
+    elif len(zones) <= 3:
+        label_zones = zones
+    else:
+        label_zones = []
+
+    line_w = 0.7 if dense else 0.9
+    span_alpha = 0.05 if dense else 0.07
+    highlight_alpha = 0.11 if dense else 0.14
+
+    for zone in zones:
+        is_highlight = zone.key == highlight_key
+        color = zone.color
+        top = _zone_top_rs(zone, rs_hi)
+        bottom = max(float(zone.rs_min), rs_lo)
+        top_clamped = min(top, rs_hi)
+        if top_clamped > bottom:
+            ax.axhspan(
+                bottom,
+                top_clamped,
+                facecolor=color,
+                alpha=highlight_alpha if is_highlight else span_alpha,
+                zorder=0,
+                linewidth=0,
+            )
+
+        ax.axhline(
+            zone.rs_min,
+            color=color if is_highlight else _ZONE_LINE,
+            linewidth=line_w + (0.2 if is_highlight else 0),
+            alpha=0.75 if is_highlight else 0.5,
+            zorder=1,
+        )
+        if zone.rs_max is not None:
+            ax.axhline(
+                zone.rs_max,
+                color=color if is_highlight else _ZONE_LINE,
+                linewidth=line_w,
+                alpha=0.6 if is_highlight else 0.4,
+                linestyle=(0, (4, 4)),
+                zorder=1,
+            )
+
+    label_size = 6 if dense else 7
+    for zone in label_zones:
+        bottom = max(float(zone.rs_min), rs_lo)
+        top = min(_zone_top_rs(zone, rs_hi), rs_hi)
+        y_mid = (bottom + top) / 2.0
+        is_highlight = zone.key == highlight_key
+        ax.text(
+            1.01,
+            y_mid,
+            zone.label,
+            transform=ax.get_yaxis_transform(),
+            ha="left",
+            va="center",
+            color=_ZONE_HIGHLIGHT if is_highlight else _ZONE_LABEL,
+            fontsize=label_size + (1 if is_highlight else 0),
+            fontweight="bold" if is_highlight else "normal",
+            clip_on=False,
+            zorder=2,
+        )
 
 
 def _catmull_rom_1d(p0: float, p1: float, p2: float, p3: float, t: float) -> float:
@@ -73,6 +165,7 @@ def render_rating_chart(
     points: list[RatingChartPoint],
     *,
     total_delta: int | None = None,
+    current_tier_name: str | None = None,
 ) -> bytes:
     if not points:
         raise ValueError("points must not be empty")
@@ -97,6 +190,25 @@ def render_rating_chart(
     fig, ax = plt.subplots(figsize=(fig_width, 3.4), dpi=100)
     fig.patch.set_facecolor(_BG)
     ax.set_facecolor(_PANEL)
+
+    y_min, y_max = min(rs_values), max(rs_values)
+    padding = max(25, int((y_max - y_min) * 0.15) or 25)
+    y_lo = y_min - padding
+    y_hi = y_max + padding
+    ax.set_ylim(y_lo, y_hi)
+
+    highlight_key = major_rank_key(current_tier_name)
+    visible_zones = zones_intersecting(y_lo, y_hi)
+    _draw_rank_zones(
+        ax,
+        y_lo,
+        y_hi,
+        highlight_key=highlight_key,
+        dense=dense,
+    )
+    show_zone_labels = bool(
+        highlight_key or len(visible_zones) <= 3
+    )
 
     samples_per_segment = 8 if dense else 14
     if has_dates:
@@ -151,10 +263,6 @@ def render_rating_chart(
             zorder=4,
         )
 
-    y_min, y_max = min(rs_values), max(rs_values)
-    padding = max(25, int((y_max - y_min) * 0.15) or 25)
-    ax.set_ylim(y_min - padding, y_max + padding)
-
     ax.yaxis.set_major_formatter(
         ticker.FuncFormatter(lambda v, _p: f"{int(v):,}".replace(",", " "))
     )
@@ -205,7 +313,10 @@ def render_rating_chart(
         fontsize=8,
     )
 
-    plt.tight_layout(pad=0.8)
+    if show_zone_labels:
+        fig.subplots_adjust(right=0.88)
+    else:
+        plt.tight_layout(pad=0.8)
     buffer = io.BytesIO()
     fig.savefig(buffer, format="png", facecolor=fig.get_facecolor(), edgecolor="none")
     plt.close(fig)

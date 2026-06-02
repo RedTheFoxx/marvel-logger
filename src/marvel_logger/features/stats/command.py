@@ -60,6 +60,11 @@ def register_stats_command(
                     render_rating_chart,
                     profile.rating_chart,
                     total_delta=profile.rating_chart_delta,
+                    current_tier_name=(
+                        profile.current_rank.tier_name
+                        if profile.current_rank
+                        else None
+                    ),
                 )
                 files = [
                     discord.File(
