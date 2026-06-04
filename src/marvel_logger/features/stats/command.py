@@ -65,6 +65,7 @@ def register_stats_command(
                         if profile.current_rank
                         else None
                     ),
+                    accent_color=profile.embed_color,
                 )
                 files = [
                     discord.File(
