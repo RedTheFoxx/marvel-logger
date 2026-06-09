@@ -1,7 +1,7 @@
 from typing import Any
 
-from marvel_logger.config import TRACKER_PROFILE_URL
-from marvel_logger.tracker.models import (
+from config import TRACKER_PROFILE_URL
+from tracker.models import (
     HeroStats,
     PlayerProfile,
     RankInfo,

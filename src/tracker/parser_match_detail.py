@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from marvel_logger.config import TRACKER_MATCH_URL
-from marvel_logger.tracker.models import (
+from config import TRACKER_MATCH_URL
+from tracker.models import (
     MatchDetail,
     MatchHero,
     MatchOutcome,
     MatchPlayerRow,
     MatchTeam,
 )
-from marvel_logger.tracker.parser import _display
-from marvel_logger.tracker.parser_matches import (
+from tracker.parser import _display
+from tracker.parser_matches import (
     _format_score,
     _normalize_outcome,
     _parse_timestamp,

@@ -2,8 +2,8 @@ import datetime
 
 import discord
 
-from marvel_logger.config import DEFAULT_EMBED_COLOR
-from marvel_logger.tracker.models import PlayerProfile, StatValue
+from config import DEFAULT_EMBED_COLOR
+from tracker.models import PlayerProfile, StatValue
 
 _SECTION_SEPARATOR = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
 

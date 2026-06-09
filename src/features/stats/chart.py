@@ -11,12 +11,12 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
 
-from marvel_logger.features.stats.rank_zones import (
+from features.stats.rank_zones import (
     RankZone,
     major_rank_key,
     zones_intersecting,
 )
-from marvel_logger.tracker.models import RatingChartPoint
+from tracker.models import RatingChartPoint
 
 _DEFAULT_ACCENT = "#3b82f6"
 _BG = "#0a0e14"

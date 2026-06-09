@@ -3,13 +3,13 @@ import logging
 import discord
 from discord import app_commands
 
-from marvel_logger.config import DISCORD_GUILD_ID, DISCORD_TOKEN
-from marvel_logger.db import RegistrationStore
-from marvel_logger.features.match import register_match_command
-from marvel_logger.features.register import register_register_command
-from marvel_logger.features.stats import register_stats_command
-from marvel_logger.logging_setup import configure_logging
-from marvel_logger.tracker import TrackerScraper
+from config import DISCORD_GUILD_ID, DISCORD_TOKEN
+from db import RegistrationStore
+from features.match import register_match_command
+from features.register import register_register_command
+from features.stats import register_stats_command
+from logging_setup import configure_logging
+from tracker import TrackerScraper
 
 logger = logging.getLogger(__name__)
 

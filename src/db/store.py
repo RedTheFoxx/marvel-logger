@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from marvel_logger.config import DATABASE_PATH
+from config import DATABASE_PATH
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tracker_registrations (

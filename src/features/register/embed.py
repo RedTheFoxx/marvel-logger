@@ -1,8 +1,8 @@
 import discord
 
-from marvel_logger.config import DEFAULT_EMBED_COLOR, MAX_REGISTRATIONS_PER_USER
-from marvel_logger.features.stats.embed import build_error_embed
-from marvel_logger.tracker.models import PlayerProfile
+from config import DEFAULT_EMBED_COLOR, MAX_REGISTRATIONS_PER_USER
+from features.stats.embed import build_error_embed
+from tracker.models import PlayerProfile
 
 __all__ = ["build_error_embed", "build_register_success_embed", "build_already_linked_embed"]
 

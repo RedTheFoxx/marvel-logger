@@ -2,12 +2,12 @@ import datetime
 import re
 from typing import Any
 
-from marvel_logger.config import (
+from config import (
     RATING_GRAPH_MATCH_LIMIT,
     RATING_GRAPH_MATCH_TARGET,
     TRACKER_MATCH_URL,
 )
-from marvel_logger.tracker.models import (
+from tracker.models import (
     MatchHero,
     MatchListEntry,
     MatchOutcome,
@@ -15,7 +15,7 @@ from marvel_logger.tracker.models import (
     PlayerProfile,
     RatingChartPoint,
 )
-from marvel_logger.tracker.parser import _display
+from tracker.parser import _display
 
 _RANKED_MODES = frozenset({"competitive", "ranked"})
 

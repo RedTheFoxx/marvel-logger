@@ -1,10 +1,10 @@
-from marvel_logger.tracker.client import (
+from tracker.client import (
     ProfileNotFoundError,
     TrackerRateLimitError,
     TrackerScraper,
     TrackerScraperError,
 )
-from marvel_logger.tracker.parser import parse_profile
+from tracker.parser import parse_profile
 
 __all__ = [
     "TrackerScraper",

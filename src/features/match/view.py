@@ -4,11 +4,11 @@ import logging
 
 import discord
 
-from marvel_logger.features.match.embed import (
+from features.match.embed import (
     build_match_detail_embed,
     build_match_detail_unavailable_embed,
 )
-from marvel_logger.tracker.models import MatchBundle
+from tracker.models import MatchBundle
 
 logger = logging.getLogger(__name__)
 

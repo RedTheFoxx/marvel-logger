@@ -16,5 +16,8 @@ dependencies = [
     "scrapling[fetchers]>=0.4.8",
 ]
 
+[tool.setuptools]
+py-modules = ["config", "logging_setup", "utils"]
+
 [tool.setuptools.packages.find]
 where = ["src"]

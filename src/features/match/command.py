@@ -4,21 +4,21 @@ import time
 import discord
 from discord import app_commands
 
-from marvel_logger.db import RegistrationStore
-from marvel_logger.features.match.embed import (
+from db import RegistrationStore
+from features.match.embed import (
     build_error_embed,
     build_match_picker_embed,
     build_no_matches_embed,
     build_no_registration_embed,
 )
-from marvel_logger.features.match.view import MatchPickerView
-from marvel_logger.tracker.client import (
+from features.match.view import MatchPickerView
+from tracker.client import (
     ProfileNotFoundError,
     TrackerRateLimitError,
     TrackerScraper,
     TrackerScraperError,
 )
-from marvel_logger.utils import validate_tracker_username
+from utils import validate_tracker_username
 
 logger = logging.getLogger(__name__)
 

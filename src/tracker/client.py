@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from playwright.async_api import Page, Response
 from scrapling.fetchers import AsyncStealthySession
 
-from marvel_logger.config import (
+from config import (
     CACHE_TTL_SECONDS,
     DEBUG,
     MATCH_DETAIL_FETCH_DELAY_SECONDS,
@@ -29,11 +29,11 @@ from marvel_logger.config import (
     TRACKER_PROFILE_URL,
     TRACKER_REQUEST_COOLDOWN_SECONDS,
 )
-from marvel_logger.logging_setup import scrape_progress
-from marvel_logger.tracker.models import MatchBundle, MatchDetail, PlayerProfile
-from marvel_logger.tracker.parser import parse_profile
-from marvel_logger.tracker.parser_match_detail import parse_match_detail
-from marvel_logger.tracker.parser_matches import apply_rating_chart, parse_recent_matches
+from logging_setup import scrape_progress
+from tracker.models import MatchBundle, MatchDetail, PlayerProfile
+from tracker.parser import parse_profile
+from tracker.parser_match_detail import parse_match_detail
+from tracker.parser_matches import apply_rating_chart, parse_recent_matches
 
 logger = logging.getLogger(__name__)
 

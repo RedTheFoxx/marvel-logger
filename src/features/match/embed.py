@@ -2,9 +2,9 @@ import datetime
 
 import discord
 
-from marvel_logger.config import DEFAULT_EMBED_COLOR, TRACKER_MATCHES_URL
-from marvel_logger.features.stats.embed import build_error_embed
-from marvel_logger.tracker.models import (
+from config import DEFAULT_EMBED_COLOR, TRACKER_MATCHES_URL
+from features.stats.embed import build_error_embed
+from tracker.models import (
     MatchBundle,
     MatchDetail,
     MatchListEntry,
