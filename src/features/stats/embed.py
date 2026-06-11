@@ -3,33 +3,84 @@ import datetime
 import discord
 
 from config import DEFAULT_EMBED_COLOR
-from tracker.models import PlayerProfile, StatValue
+from tracker.models import HeroStats, PlayerProfile, RankInfo, RoleStats, StatValue
 
+_BLANK = "\u200b"
 _SECTION_SEPARATOR = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
 
 
 def _add_section_separator(embed: discord.Embed) -> None:
-    embed.add_field(name="\u200b", value=_SECTION_SEPARATOR, inline=False)
+    embed.add_field(name=_BLANK, value=_SECTION_SEPARATOR, inline=False)
 
 
-def _rating_chart_summary(profile: PlayerProfile) -> str:
-    lines = [f"**{len(profile.rating_chart)}** parties classées"]
-    delta = profile.rating_chart_delta
-    if delta is not None:
-        sign = "+" if delta > 0 else ""
-        lines.append(f"Variation : **{sign}{delta} RS**")
-    if profile.current_rank and profile.current_rank.rs:
-        lines.append(f"RS actuel : **{profile.current_rank.rs}**")
-    return "\n".join(lines)
+_ROLE_EMOJIS = {
+    "vanguard": "🛡️",
+    "duelist": "⚔️",
+    "strategist": "💉",
+}
+
+_MEDALS = ["🥇", "🥈", "🥉"]
 
 
-def _percentile_suffix(stat: StatValue | None) -> str:
+def _role_emoji(name: str) -> str:
+    return _ROLE_EMOJIS.get(name.strip().lower(), "🎮")
+
+
+def _percentile_badge(stat: StatValue | None) -> str:
+    """Petit badge de percentile sur la même ligne (ex : `Top 4.2%`)."""
     if not stat or stat.percentile is None:
         return ""
     p = stat.percentile
     if p > 50:
-        return f"\nTop {100.0 - p:.1f}%"
-    return f"\nBottom {p:.1f}%"
+        return f"\n-# Top {100.0 - p:.1f}%"
+    return f"\n-# Bottom {p:.1f}%"
+
+
+def _rank_line(rank: RankInfo, *, with_season: bool = False) -> str:
+    parts = [f"**{rank.tier_name}**"]
+    if rank.rs:
+        parts.append(f"{rank.rs} RS")
+    line = " · ".join(parts)
+    if with_season and rank.season_label:
+        line += f"\n-# {rank.season_label}"
+    return line
+
+
+def _rating_chart_summary(profile: PlayerProfile) -> str:
+    parts = [f"📈 **{len(profile.rating_chart)}** parties classées"]
+    delta = profile.rating_chart_delta
+    if delta is not None:
+        if delta > 0:
+            parts.append(f"🔺 **+{delta} RS**")
+        elif delta < 0:
+            parts.append(f"🔻 **{delta} RS**")
+        else:
+            parts.append("➖ **±0 RS**")
+    if profile.current_rank and profile.current_rank.rs:
+        parts.append(f"🎯 **{profile.current_rank.rs} RS** actuels")
+    return " · ".join(parts)
+
+
+def _role_field_value(role: RoleStats) -> str:
+    return (
+        f"🏆 WR **{role.win_pct}** · {role.wins} wins\n"
+        f"⚖️ KDA **{role.kda}**\n"
+        f"-# {role.kills} / {role.deaths} / {role.assists}"
+    )
+
+
+def _hero_field_value(hero: HeroStats) -> str:
+    return (
+        f"🏆 WR **{hero.win_pct}** · {hero.record}\n"
+        f"⚖️ KDA **{hero.kda}**\n"
+        f"-# {hero.kills} / {hero.deaths} / {hero.assists}"
+    )
+
+
+def _pad_inline_row(embed: discord.Embed, used: int) -> None:
+    """Complète une rangée inline pour garder l'alignement en colonnes de 3."""
+    for _ in range((3 - used % 3) % 3):
+        embed.add_field(name=_BLANK, value=_BLANK, inline=True)
 
 
 def build_stats_embed(profile: PlayerProfile) -> discord.Embed:
@@ -55,137 +106,168 @@ def build_stats_embed(profile: PlayerProfile) -> discord.Embed:
         embed.set_thumbnail(url=profile.avatar_url)
 
     summary = (
-        f"**{profile.matches_played}** matchs · **{profile.time_played}** de jeu"
+        f"🎮 **{profile.matches_played}** matchs · "
+        f"⏱️ **{profile.time_played}** de jeu"
     )
     if profile.season_name:
-        summary += f"\nSaison : **{profile.season_name}**"
+        summary += f"\n-# {profile.season_name}"
     embed.description = summary
 
+    # ── Performance clé (3 colonnes) ──
+    key_stats = 0
     if profile.kda:
         embed.add_field(
-            name="KDA Ratio",
-            value=f"**{profile.kda.display}**{_percentile_suffix(profile.kda)}",
+            name="⚖️ KDA Ratio",
+            value=f"**{profile.kda.display}**{_percentile_badge(profile.kda)}",
             inline=True,
         )
+        key_stats += 1
     if profile.win_pct:
         embed.add_field(
-            name="Win %",
-            value=f"**{profile.win_pct.display}**{_percentile_suffix(profile.win_pct)}",
+            name="🏆 Win %",
+            value=f"**{profile.win_pct.display}**{_percentile_badge(profile.win_pct)}",
             inline=True,
         )
+        key_stats += 1
     if profile.wins:
         embed.add_field(
-            name="Wins",
-            value=f"**{profile.wins.display}**{_percentile_suffix(profile.wins)}",
+            name="✅ Wins",
+            value=f"**{profile.wins.display}**{_percentile_badge(profile.wins)}",
             inline=True,
         )
+        key_stats += 1
+    _pad_inline_row(embed, key_stats)
 
-    rank_parts = []
+    # ── Rang (3 colonnes) ──
+    has_rank_section = bool(
+        profile.current_rank
+        or profile.season_peak
+        or profile.lifetime_peak
+        or profile.season_peaks
+    )
+    if has_rank_section:
+        _add_section_separator(embed)
+
+    rank_fields = 0
     if profile.current_rank:
-        rs = profile.current_rank.rs
-        rank_parts.append(
-            f"**Rang actuel** — {profile.current_rank.tier_name}"
-            + (f" · {rs} RS" if rs else "")
-        )
-    if profile.season_peak:
-        rank_parts.append(
-            f"**Peak saison** — {profile.season_peak.tier_name}"
-            + (f" · {profile.season_peak.rs} RS" if profile.season_peak.rs else "")
-        )
-    if profile.lifetime_peak:
-        season = (
-            f" // {profile.lifetime_peak.season_label}"
-            if profile.lifetime_peak.season_label
-            else ""
-        )
-        rank_parts.append(
-            f"**All-time best** — {profile.lifetime_peak.tier_name}{season}"
-            + (
-                f" · {profile.lifetime_peak.rs} RS"
-                if profile.lifetime_peak.rs
-                else ""
-            )
-        )
-    if rank_parts:
-        _add_section_separator(embed)
-        embed.add_field(name="Rang", value="\n".join(rank_parts), inline=False)
-
-    if profile.rating_chart:
-        _add_section_separator(embed)
         embed.add_field(
-            name="Évolution du rating (parties classées)",
-            value=_rating_chart_summary(profile),
-            inline=False,
+            name="🏅 Rang actuel",
+            value=_rank_line(profile.current_rank),
+            inline=True,
         )
-        embed.set_image(url="attachment://rating_chart.png")
+        rank_fields += 1
+    if profile.season_peak:
+        embed.add_field(
+            name="📈 Peak saison",
+            value=_rank_line(profile.season_peak),
+            inline=True,
+        )
+        rank_fields += 1
+    if profile.lifetime_peak:
+        embed.add_field(
+            name="👑 All-time best",
+            value=_rank_line(profile.lifetime_peak, with_season=True),
+            inline=True,
+        )
+        rank_fields += 1
+    _pad_inline_row(embed, rank_fields)
 
     if profile.season_peaks:
         peaks_text = " · ".join(
-            f"{p.season_label} {p.tier_short}"
+            f"{p.season_label} **{p.tier_short}**"
             for p in profile.season_peaks
             if p.season_label
         )
         if peaks_text:
             embed.add_field(
-                name="Rangs précédents",
-                value=peaks_text,
+                name="🗓️ Rangs précédents",
+                value=f"-# {peaks_text}",
                 inline=False,
             )
 
-    detail_lines = []
-    if profile.mvp_pct:
-        detail_lines.append(f"MVP % · **{profile.mvp_pct.display}**")
+    # ── Combat (colonnes thématiques) ──
+    combat_lines = []
     if profile.kd_ratio:
-        detail_lines.append(f"K/D · **{profile.kd_ratio}**")
+        combat_lines.append(f"K/D **{profile.kd_ratio}**")
     if profile.kills:
-        detail_lines.append(f"Kills · **{profile.kills}**")
+        combat_lines.append(f"Kills **{profile.kills}**")
     if profile.deaths:
-        detail_lines.append(f"Deaths · **{profile.deaths}**")
+        combat_lines.append(f"Deaths **{profile.deaths}**")
     if profile.assists:
-        detail_lines.append(f"Assists · **{profile.assists}**")
+        combat_lines.append(f"Assists **{profile.assists}**")
     if profile.last_kills:
-        detail_lines.append(f"Last Kills · **{profile.last_kills}**")
-    if profile.svp_pct:
-        detail_lines.append(f"SVP % · **{profile.svp_pct}**")
-    if profile.damage:
-        detail_lines.append(f"Damage · **{profile.damage}**")
-    if profile.healing:
-        detail_lines.append(f"Healing · **{profile.healing}**")
-    if profile.damage_blocked:
-        detail_lines.append(f"Damage Blocked · **{profile.damage_blocked}**")
+        combat_lines.append(f"Last Kills **{profile.last_kills}**")
     if profile.max_kill_streak:
-        detail_lines.append(f"Max Kill Streak · **{profile.max_kill_streak}**")
+        combat_lines.append(f"Kill Streak **{profile.max_kill_streak}**")
+
+    impact_lines = []
+    if profile.damage:
+        impact_lines.append(f"Damage **{profile.damage}**")
+    if profile.healing:
+        impact_lines.append(f"Healing **{profile.healing}**")
+    if profile.damage_blocked:
+        impact_lines.append(f"Blocked **{profile.damage_blocked}**")
+
+    honors_lines = []
     if profile.mvps is not None:
-        detail_lines.append(f"MVPs · **{profile.mvps}**")
+        honors_lines.append(f"MVPs **{profile.mvps}**")
+    if profile.mvp_pct:
+        honors_lines.append(f"MVP % **{profile.mvp_pct.display}**")
     if profile.svps:
-        svp_suffix = _percentile_suffix(profile.svps)
-        detail_lines.append(f"SVPs · **{profile.svps.display}**{svp_suffix}")
+        honors_lines.append(f"SVPs **{profile.svps.display}**")
+    if profile.svp_pct:
+        honors_lines.append(f"SVP % **{profile.svp_pct}**")
 
-    if detail_lines:
+    has_detail_section = bool(combat_lines or impact_lines or honors_lines)
+    if has_detail_section:
         _add_section_separator(embed)
-        embed.add_field(
-            name="Statistiques détaillées",
-            value="\n".join(detail_lines),
-            inline=False,
-        )
 
+    detail_fields = 0
+    if combat_lines:
+        embed.add_field(name="⚔️ Combat", value="\n".join(combat_lines), inline=True)
+        detail_fields += 1
+    if impact_lines:
+        embed.add_field(name="💥 Impact", value="\n".join(impact_lines), inline=True)
+        detail_fields += 1
+    if honors_lines:
+        embed.add_field(
+            name="🌟 Distinctions", value="\n".join(honors_lines), inline=True
+        )
+        detail_fields += 1
+    _pad_inline_row(embed, detail_fields)
+
+    # ── Rôles (côte à côte) ──
     if profile.roles:
         _add_section_separator(embed)
-        roles_text = "\n\n".join(
-            f"**{r.name}** — WR **{r.win_pct}** ({r.wins} wins)\n"
-            f"KDA **{r.kda}** · {r.kills} / {r.deaths} / {r.assists}"
-            for r in profile.roles
-        )
-        embed.add_field(name="Rôles", value=roles_text, inline=False)
+        for role in profile.roles[:3]:
+            embed.add_field(
+                name=f"{_role_emoji(role.name)} {role.name}",
+                value=_role_field_value(role),
+                inline=True,
+            )
+        _pad_inline_row(embed, min(len(profile.roles), 3))
 
+    # ── Top héros (côte à côte, avec podium) ──
     if profile.top_heroes:
         _add_section_separator(embed)
-        heroes_text = "\n\n".join(
-            f"**{h.name}** — WR **{h.win_pct}** ({h.record})\n"
-            f"KDA **{h.kda}** · {h.kills} / {h.deaths} / {h.assists}"
-            for h in profile.top_heroes
+        for i, hero in enumerate(profile.top_heroes[:3]):
+            medal = _MEDALS[i] if i < len(_MEDALS) else "🎖️"
+            embed.add_field(
+                name=f"{medal} {hero.name}",
+                value=_hero_field_value(hero),
+                inline=True,
+            )
+        _pad_inline_row(embed, min(len(profile.top_heroes), 3))
+
+    # ── Courbe de rating ──
+    if profile.rating_chart:
+        _add_section_separator(embed)
+        embed.add_field(
+            name="📊 Évolution du rating",
+            value=_rating_chart_summary(profile),
+            inline=False,
         )
-        embed.add_field(name="Top héros", value=heroes_text, inline=False)
+        embed.set_image(url="attachment://rating_chart.png")
 
     footer = "Tracker.gg · Marvel Rivals"
     if profile.season_name:
