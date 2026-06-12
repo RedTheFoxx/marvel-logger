@@ -1,27 +1,14 @@
 # marvel-logger
 
-Bot Discord qui affiche les statistiques Marvel Rivals d'un joueur, récupérées sur [Tracker.gg](https://tracker.gg/marvel-rivals).
+## Qui suis-je ?
 
-## Installation
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
-```
-
-Copiez `.env.example` vers `.env` et renseignez `DISCORD_TOKEN` (et optionnellement `DISCORD_GUILD_ID`).
-
-## Lancement
-
-```bash
-python app.py
-```
+Conçu pour la collecte et la visualisation des statistiques Marvel Rivals d'un joueur, récupérées sur [Tracker.gg](https://tracker.gg/marvel-rivals), j'existe à des fins d'expérimentation. Les prochaines itérations permettront de réaliser des études corrélant statistiques de matches avec des notes de qualité de jeu.
 
 ## Commandes
 
 | Commande | Description |
 |----------|-------------|
 | `/stats <pseudo>` | Overview du profil : rang, stats principales, rôles et top 3 héros (saison courante, plateforme IGN). |
-| `/register <pseudo>` | Lie votre compte Discord à un pseudo Tracker.gg (jusqu'à 3 pseudos). Le profil doit exister sur Tracker.gg. Réponse privée. |
+| `/register <pseudo>` | Lie votre compte Discord à un pseudo Tracker.gg (jusqu'à 3 pseudos). Le profil doit exister sur Tracker.gg. |
 | `/match [pseudo]` | Affiche les 5 derniers matchs classés puis un menu pour consulter le scoreboard détaillé. Sans pseudo : utilise le premier pseudo lié via `/register`. |
+| `/feels [pseudo]` | Note le ressenti (1–10) de vos derniers matchs classés de la saison courante. Affiche un graphique de vos notes et un menu pour noter les matchs non encore évalués. Nécessite un pseudo lié via `/register` (le vôtre uniquement). Sans pseudo : utilise le premier pseudo lié. |
