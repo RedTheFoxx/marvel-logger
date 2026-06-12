@@ -4,7 +4,8 @@ import discord
 from discord import app_commands
 
 from config import DISCORD_GUILD_ID, DISCORD_TOKEN
-from db import RegistrationStore
+from db import FeelsStore, RegistrationStore
+from features.feels import register_feels_command
 from features.match import register_match_command
 from features.register import register_register_command
 from features.stats import register_stats_command
@@ -15,19 +16,29 @@ logger = logging.getLogger(__name__)
 
 
 class MarvelLoggerBot(discord.Client):
-    def __init__(self, tracker: TrackerScraper, registrations: RegistrationStore) -> None:
+    def __init__(
+        self,
+        tracker: TrackerScraper,
+        registrations: RegistrationStore,
+        feels: FeelsStore,
+    ) -> None:
         intents = discord.Intents.default()
         super().__init__(intents=intents)
         self.tracker = tracker
         self.registrations = registrations
+        self.feels = feels
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self) -> None:
         await self.registrations.init()
+        await self.feels.init()
         await self.tracker.start()
         register_stats_command(self.tree, self.tracker)
         register_register_command(self.tree, self.tracker, self.registrations)
         register_match_command(self.tree, self.tracker, self.registrations)
+        register_feels_command(
+            self.tree, self.tracker, self.registrations, self.feels
+        )
         if DISCORD_GUILD_ID:
             guild = discord.Object(id=int(DISCORD_GUILD_ID))
             self.tree.copy_global_to(guild=guild)
@@ -62,7 +73,8 @@ def main() -> None:
 
     tracker = TrackerScraper()
     registrations = RegistrationStore()
-    bot = MarvelLoggerBot(tracker, registrations)
+    feels = FeelsStore()
+    bot = MarvelLoggerBot(tracker, registrations, feels)
     # log_handler=None : pas de StreamHandler discord.py (format YYYY-MM-DD séparé)
     bot.run(DISCORD_TOKEN, log_handler=None)
 

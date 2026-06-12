@@ -34,6 +34,8 @@ TRACKER_MATCH_API_PATH = (
     "/api/v2/marvel-rivals/standard/matches/{match_id}"
 )
 MATCH_PREVIEW_LIMIT = int(os.getenv("MATCH_PREVIEW_LIMIT", "5"))
+# Nombre de derniers matchs proposés à la notation via /feels
+FEELS_MATCH_LIMIT = int(os.getenv("FEELS_MATCH_LIMIT", "10"))
 MATCH_DETAIL_FETCH_DELAY_SECONDS = float(
     os.getenv("MATCH_DETAIL_FETCH_DELAY_SECONDS", "0.3")
 )

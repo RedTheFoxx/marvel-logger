@@ -1,6 +1,6 @@
 import datetime
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 
 @dataclass
@@ -157,6 +157,7 @@ class MatchBundle:
     season_id: int
     entries: list[MatchListEntry]
     details: dict[str, MatchDetail]
+    details_raw: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass

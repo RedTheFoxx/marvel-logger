@@ -383,6 +383,7 @@ class TrackerScraper:
         *,
         skip_match_pagination: bool = False,
         prefetch_match_details: bool = False,
+        match_limit: int | None = None,
     ):
         profile_path = self._profile_api_path(username)
         wait_seconds = max((SCRAPE_TIMEOUT_MS - 20_000) / 1000, 20.0)
@@ -521,7 +522,7 @@ class TrackerScraper:
                     capture["matches"],
                     username,
                     season_id,
-                    limit=MATCH_PREVIEW_LIMIT,
+                    limit=match_limit or MATCH_PREVIEW_LIMIT,
                 )
                 match_ids = [e.match_id for e in entries]
                 if match_ids:
@@ -607,6 +608,7 @@ class TrackerScraper:
         *,
         skip_match_pagination: bool = False,
         prefetch_match_details: bool = False,
+        match_limit: int | None = None,
     ) -> dict[str, Any]:
         if self._session is None:
             raise TrackerScraperError(
@@ -622,6 +624,7 @@ class TrackerScraper:
             capture,
             skip_match_pagination=skip_match_pagination,
             prefetch_match_details=prefetch_match_details,
+            match_limit=match_limit,
         )
 
         try:
@@ -752,7 +755,7 @@ class TrackerScraper:
         return capture.get("match_details") or {}
 
     def _bundle_from_raw(
-        self, username: str, raw: dict[str, Any]
+        self, username: str, raw: dict[str, Any], *, limit: int | None = None
     ) -> MatchBundle:
         profile_payload = raw.get("profile") or {}
         matches_payload = raw.get("matches")
@@ -761,9 +764,10 @@ class TrackerScraper:
             matches_payload or {},
             username,
             season_id,
-            limit=MATCH_PREVIEW_LIMIT,
+            limit=limit or MATCH_PREVIEW_LIMIT,
         )
         details: dict[str, MatchDetail] = {}
+        details_raw: dict[str, dict[str, Any]] = {}
         raw_details = raw.get("match_details") or {}
         for entry in entries:
             detail_raw = raw_details.get(entry.match_id)
@@ -771,6 +775,7 @@ class TrackerScraper:
                 detail_raw = self._detail_cache_get(entry.match_id)
             if detail_raw is None:
                 continue
+            details_raw[entry.match_id] = detail_raw
             try:
                 details[entry.match_id] = parse_match_detail(detail_raw, username)
             except (ValueError, KeyError) as exc:
@@ -784,9 +789,12 @@ class TrackerScraper:
             season_id=season_id,
             entries=entries,
             details=details,
+            details_raw=details_raw,
         )
 
-    async def fetch_match_bundle(self, username: str) -> MatchBundle:
+    async def fetch_match_bundle(
+        self, username: str, *, limit: int | None = None
+    ) -> MatchBundle:
         started = time.monotonic()
         cached = self._cache_get(username)
         need_scrape = cached is None or cached.get("matches") is None
@@ -798,12 +806,13 @@ class TrackerScraper:
                 username,
                 skip_match_pagination=True,
                 prefetch_match_details=True,
+                match_limit=limit,
             )
             self._cache_set(username, payload)
-            bundle = self._bundle_from_raw(username, payload)
+            bundle = self._bundle_from_raw(username, payload, limit=limit)
         else:
             logger.info("[green]Cache hit[/] match bundle pour %s", username)
-            bundle = self._bundle_from_raw(username, cached)
+            bundle = self._bundle_from_raw(username, cached, limit=limit)
             missing = [
                 e.match_id
                 for e in bundle.entries
@@ -822,7 +831,7 @@ class TrackerScraper:
                 existing.update(prefetched)
                 merged["match_details"] = existing
                 self._cache_set(username, merged)
-                bundle = self._bundle_from_raw(username, merged)
+                bundle = self._bundle_from_raw(username, merged, limit=limit)
 
         logger.info(
             "Match bundle : %s (%d aperçus, %d détails) en %.1fs",
