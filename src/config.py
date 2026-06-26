@@ -75,3 +75,6 @@ DEFAULT_EMBED_COLOR = 0xF4C430
 
 DATABASE_PATH = os.getenv("DATABASE_PATH", "data/registrations.db")
 MAX_REGISTRATIONS_PER_USER = 3
+
+# For future usage of our demo command
+MAX_DEMONSTRATION_EMBED = 5
