@@ -207,6 +207,37 @@ class FeelsStore:
         finally:
             conn.close()
 
+    async def delete_for_username(
+        self,
+        discord_user_id: int,
+        tracker_username_normalized: str,
+    ) -> int:
+        """Supprime tous les ressentis liés à ce pseudo. Retourne le nombre de lignes supprimées."""
+        return await asyncio.to_thread(
+            self._delete_for_username_sync,
+            discord_user_id,
+            tracker_username_normalized,
+        )
+
+    def _delete_for_username_sync(
+        self,
+        discord_user_id: int,
+        tracker_username_normalized: str,
+    ) -> int:
+        conn = sqlite3.connect(self._path)
+        try:
+            cursor = conn.execute(
+                """
+                DELETE FROM match_feels
+                WHERE discord_user_id = ? AND tracker_username_normalized = ?
+                """,
+                (discord_user_id, tracker_username_normalized),
+            )
+            conn.commit()
+            return cursor.rowcount
+        finally:
+            conn.close()
+
     async def rated_match_ids(
         self,
         discord_user_id: int,

@@ -110,3 +110,22 @@ class RegistrationStore:
             conn.commit()
         finally:
             conn.close()
+
+    async def remove(self, discord_user_id: int, normalized: str) -> bool:
+        """Supprime le pseudo normalisé de l'utilisateur. Retourne True si une ligne a été supprimée."""
+        return await asyncio.to_thread(self._remove_sync, discord_user_id, normalized)
+
+    def _remove_sync(self, discord_user_id: int, normalized: str) -> bool:
+        conn = sqlite3.connect(self._path)
+        try:
+            cursor = conn.execute(
+                """
+                DELETE FROM tracker_registrations
+                WHERE discord_user_id = ? AND tracker_username_normalized = ?
+                """,
+                (discord_user_id, normalized),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
