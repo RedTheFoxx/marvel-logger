@@ -3,7 +3,18 @@ repos:
     hooks:
     - id: repo-agent
       name: RepoAgent
-      entry: /home/red/Projets/RepoAgent/.venv/bin/repoagent
+      entry: env OPENAI_API_KEY=ollama /home/red/Projets/RepoAgent/.venv/bin/repoagent run
+      args:
+        - --model
+        - qwen3.6:35b
+        - --base-url
+        - http://localhost:11434/v1
+        - -l
+        - English
+        - -r
+        - "600"
+        - -mtc
+        - "1"
       language: system
       pass_filenames: false
       types: [python]
