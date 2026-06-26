@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+    - id: repo-agent
+      name: RepoAgent
+      entry: /home/red/Projets/RepoAgent/.venv/bin/repoagent
+      language: system
+      pass_filenames: false
+      types: [python]
