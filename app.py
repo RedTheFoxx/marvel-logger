@@ -5,6 +5,7 @@ from discord import app_commands
 
 from config import DISCORD_GUILD_ID, DISCORD_TOKEN
 from db import FeelsStore, RegistrationStore
+from features.demo import register_demo_command
 from features.feels import register_feels_command
 from features.match import register_match_command
 from features.register import register_register_command
@@ -34,6 +35,7 @@ class MarvelLoggerBot(discord.Client):
         await self.registrations.init()
         await self.feels.init()
         await self.tracker.start()
+        register_demo_command(self.tree)
         register_stats_command(self.tree, self.tracker)
         register_register_command(self.tree, self.tracker, self.registrations)
         register_unregister_command(self.tree, self.registrations, self.feels)
